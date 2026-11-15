@@ -1,0 +1,286 @@
+/* =========================================================
+   VARIABLES DE DISEÑO — cambia aquí colores, tamaños y fuentes.
+   El resto del archivo solo usa estas variables.
+   ========================================================= */
+:root {
+  /* Colores */
+  --color-fondo: #0e0e12;
+  --color-superficie: #1a1a21;
+  --color-superficie-activa: #26262f;
+  --color-texto: #f4f4f6;
+  --color-texto-suave: #9a9aa6;
+  --color-acento: #ff5a36;          /* el color de "15" y los botones principales */
+  --color-texto-sobre-acento: #ffffff;
+  --color-peligro: #ff4d6d;
+  --color-borde: #2c2c36;
+
+  /* Tipografía */
+  --fuente: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --texto-xs: 0.75rem;
+  --texto-s: 0.875rem;
+  --texto-m: 1rem;
+  --texto-l: 1.25rem;
+  --texto-xl: 1.75rem;
+  --peso-normal: 400;
+  --peso-fuerte: 700;
+
+  /* Espacios */
+  --espacio-xs: 4px;
+  --espacio-s: 8px;
+  --espacio-m: 16px;
+  --espacio-l: 24px;
+
+  /* Radios */
+  --radio-s: 6px;
+  --radio-m: 12px;
+  --radio-l: 20px;
+  --radio-redondo: 999px;
+
+  /* Tamaños */
+  --portada-lista: 48px;
+  --portada-reproductor: 56px;
+  --boton-icono: 44px;              /* mínimo recomendado por Apple para tocar */
+  --boton-icono-grande: 56px;
+  --alto-reproductor: 96px;
+}
+
+/* =========================================================
+   BASE
+   ========================================================= */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--color-fondo);
+  color: var(--color-texto);
+  font-family: var(--fuente);
+  font-size: var(--texto-m);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  min-height: 100dvh;
+  /* Respeta el notch y la barra de inicio del iPhone */
+  padding-top: env(safe-area-inset-top);
+}
+
+button { font: inherit; color: inherit; }
+
+/* =========================================================
+   CABECERA
+   ========================================================= */
+.cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--espacio-m);
+  padding-left: max(var(--espacio-m), env(safe-area-inset-left));
+  padding-right: max(var(--espacio-m), env(safe-area-inset-right));
+}
+
+.marca {
+  margin: 0;
+  font-size: var(--texto-xl);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: -0.02em;
+}
+
+.marca__numero { color: var(--color-acento); }
+
+.boton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--espacio-xs);
+  padding: var(--espacio-s) var(--espacio-m);
+  border: 0;
+  border-radius: var(--radio-redondo);
+  font-weight: var(--peso-fuerte);
+  font-size: var(--texto-s);
+  cursor: pointer;
+}
+
+.boton--primario {
+  background: var(--color-acento);
+  color: var(--color-texto-sobre-acento);
+}
+
+.aviso {
+  margin: 0 var(--espacio-m) var(--espacio-s);
+  padding: var(--espacio-s) var(--espacio-m);
+  border-radius: var(--radio-m);
+  background: var(--color-superficie);
+  color: var(--color-texto-suave);
+  font-size: var(--texto-s);
+}
+
+/* =========================================================
+   LISTA DE CANCIONES
+   ========================================================= */
+.contenido {
+  padding: 0 var(--espacio-m);
+  /* Deja espacio para que el reproductor fijo no tape la última canción */
+  padding-bottom: calc(var(--alto-reproductor) + env(safe-area-inset-bottom) + var(--espacio-l));
+}
+
+.lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cancion {
+  display: flex;
+  align-items: center;
+  gap: var(--espacio-m);
+  padding: var(--espacio-s);
+  border-radius: var(--radio-m);
+  cursor: pointer;
+}
+
+.cancion:active,
+.cancion--sonando { background: var(--color-superficie-activa); }
+
+.cancion--sonando .cancion__titulo { color: var(--color-acento); }
+
+.cancion__portada {
+  width: var(--portada-lista);
+  height: var(--portada-lista);
+  flex-shrink: 0;
+  border-radius: var(--radio-s);
+  object-fit: cover;
+  background: var(--color-superficie);
+}
+
+.cancion__info { flex: 1; min-width: 0; }
+
+.cancion__titulo,
+.cancion__artista {
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cancion__titulo { font-weight: var(--peso-fuerte); }
+
+.cancion__artista {
+  color: var(--color-texto-suave);
+  font-size: var(--texto-s);
+}
+
+.cancion__borrar {
+  width: var(--boton-icono);
+  height: var(--boton-icono);
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radio-redondo);
+  background: transparent;
+  color: var(--color-texto-suave);
+  font-size: var(--texto-l);
+  cursor: pointer;
+}
+
+.cancion__borrar:active { color: var(--color-peligro); }
+
+.vacio {
+  margin-top: 20vh;
+  text-align: center;
+  color: var(--color-texto-suave);
+}
+
+.vacio__titulo {
+  font-size: var(--texto-l);
+  font-weight: var(--peso-fuerte);
+  color: var(--color-texto);
+}
+
+.vacio__texto { line-height: 1.5; }
+
+.espacio {
+  margin-top: var(--espacio-l);
+  text-align: center;
+  color: var(--color-texto-suave);
+  font-size: var(--texto-xs);
+}
+
+/* =========================================================
+   REPRODUCTOR (fijo abajo)
+   ========================================================= */
+.reproductor {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--espacio-m);
+  min-height: var(--alto-reproductor);
+  padding: var(--espacio-m);
+  padding-bottom: calc(var(--espacio-m) + env(safe-area-inset-bottom));
+  background: var(--color-superficie);
+  border-top: 1px solid var(--color-borde);
+}
+
+.reproductor__portada {
+  width: var(--portada-reproductor);
+  height: var(--portada-reproductor);
+  flex-shrink: 0;
+  border-radius: var(--radio-s);
+  object-fit: cover;
+}
+
+.reproductor__info { flex: 1; min-width: 0; }
+
+.reproductor__titulo,
+.reproductor__artista {
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reproductor__titulo { font-weight: var(--peso-fuerte); }
+
+.reproductor__artista {
+  color: var(--color-texto-suave);
+  font-size: var(--texto-s);
+}
+
+.reproductor__progreso {
+  width: 100%;
+  margin: var(--espacio-s) 0 0;
+  accent-color: var(--color-acento);
+}
+
+.reproductor__controles {
+  display: flex;
+  align-items: center;
+  gap: var(--espacio-xs);
+}
+
+.boton-icono {
+  width: var(--boton-icono);
+  height: var(--boton-icono);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radio-redondo);
+  background: transparent;
+  font-size: var(--texto-l);
+  cursor: pointer;
+}
+
+.boton-icono--grande {
+  width: var(--boton-icono-grande);
+  height: var(--boton-icono-grande);
+  background: var(--color-acento);
+  color: var(--color-texto-sobre-acento);
+}
+
+.boton-icono:disabled { opacity: 0.4; }
+
+/* En pantallas angostas el reproductor se apila en dos filas */
+@media (max-width: 380px) {
+  .reproductor { flex-wrap: wrap; }
+  .reproductor__controles { width: 100%; justify-content: center; }
+}

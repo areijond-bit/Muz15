@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Muz15</title>
+  <meta name="description" content="Mi música, sin internet.">
+
+  <!-- Instalación como app (Android y iPhone) -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0e0e12">
+  <link rel="icon" href="icons/icono-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/icono-180.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Muz15">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- Consola en el teléfono: abre la app con ?debug al final de la URL -->
+  <script>
+    if (new URLSearchParams(location.search).has('debug')) {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/eruda@3.4.1/eruda.min.js';
+      s.onload = () => eruda.init();
+      document.head.appendChild(s);
+    }
+  </script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="cabecera">
+    <h1 class="marca">Muz<span class="marca__numero">15</span></h1>
+    <label class="boton boton--primario">
+      + Importar
+      <input id="importar" type="file" accept="audio/*,.mp3,.m4a,.aac,.wav" multiple hidden>
+    </label>
+  </header>
+
+  <p id="aviso" class="aviso" role="status" hidden></p>
+
+  <main class="contenido">
+    <ul id="lista" class="lista"></ul>
+    <div id="vacio" class="vacio">
+      <p class="vacio__titulo">Todavía no hay canciones</p>
+      <p class="vacio__texto">Toca <strong>+ Importar</strong> y elige archivos MP3 o M4A.<br>Se guardan en el teléfono y suenan sin internet.</p>
+    </div>
+    <p id="espacio" class="espacio"></p>
+  </main>
+
+  <footer class="reproductor" id="reproductor">
+    <img id="portada" class="reproductor__portada" src="icons/portada.png" alt="">
+    <div class="reproductor__info">
+      <p id="titulo" class="reproductor__titulo">Nada sonando</p>
+      <p id="artista" class="reproductor__artista">Elige una canción</p>
+      <input id="progreso" class="reproductor__progreso" type="range" min="0" max="0" step="0.1" value="0" aria-label="Progreso">
+    </div>
+    <div class="reproductor__controles">
+      <button id="anterior" class="boton-icono" aria-label="Anterior">⏮</button>
+      <button id="alternar" class="boton-icono boton-icono--grande" aria-label="Reproducir">▶</button>
+      <button id="siguiente" class="boton-icono" aria-label="Siguiente">⏭</button>
+    </div>
+    <!-- Un solo <audio> para toda la app: así iOS mantiene la sesión de audio -->
+    <audio id="audio" preload="auto"></audio>
+  </footer>
+</body>
+</html>
