@@ -1,4 +1,4 @@
-# Fase 0: prueba en el iPhone
+# Fase 0: prueba en el teléfono (iPhone y Android)
 
 Haz todas las pruebas con Muz15 **instalada en la pantalla de inicio** y abierta desde su ícono.
 Importa antes 3 o 4 canciones tuyas, de preferencia MP3 o M4A que tengan portada.
@@ -49,6 +49,28 @@ Resultado: ________________
 
 Resultado: ________________
 
+## Android
+
+Son las mismas 4 pruebas, con estas diferencias:
+
+- **Instalar:** abre la URL en **Chrome** → menú ⋮ → **Instalar app** (o **Añadir a pantalla de inicio**) y ábrela desde el ícono.
+- **Importar:** al pulsar **+ Importar**, Android puede abrir "Audio" o "Archivos". Si no ves tus canciones, busca el menú ☰ del selector y elige la carpeta donde están (normalmente *Música* o *Descargas*).
+- **(a) Pantalla bloqueada:** los controles salen en la notificación y en la pantalla de bloqueo. Si se corta al rato, la causa suele ser el ahorro de batería: Ajustes → Apps → Chrome → Batería → **Sin restricciones**, y vuelve a probar.
+- **(c) Pausa larga:** en Android este fallo de iOS no debería pasar, pero pruébalo igual para comparar.
+- **(d) Modo avión:** igual que en iPhone.
+
+Anota tu modelo de Android y la versión (Ajustes → Acerca del teléfono): ________________
+
+| Prueba | iPhone | Android |
+|---|---|---|
+| (a) 10 min bloqueado | | |
+| (b) Carro: título y volante | | |
+| (c) Reanudar tras pausa larga | | |
+| (d) Modo avión | | |
+
 ## Si algo falla
+
+En **Android** puedes usar lo mismo de abajo, o conectar el teléfono por USB a la PC y abrir `chrome://inspect` en Chrome de la computadora.
+
 
 Abre la URL en Safari con `?debug` al final (ej. `https://TU_USUARIO.github.io/Muz15/?debug`). Aparece un botón de engranaje con la consola: toma captura de los errores rojos y pásamela.
