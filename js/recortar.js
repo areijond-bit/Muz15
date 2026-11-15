@@ -13,8 +13,14 @@
 import { icono } from './iconos.js';
 import { codificar, sePuedeComprimir } from './comprimir.js';
 
-// Cuánta memoria puede ocupar el audio abierto (se guarda completo para poder cortarlo).
-const PRESUPUESTO_BYTES = 480 * 1024 * 1024;
+// Cuánta memoria puede usar abrir el audio (se guarda completo para poder cortarlo).
+// deviceMemory = GB del aparato (aprox., máx. 8): un teléfono de 4 GB → 600 MB. Si se pasa,
+// el navegador cierra la página, así que mejor avisar antes.
+const PRESUPUESTO_BYTES = Math.min(1200, (navigator.deviceMemory || 4) * 150) * 1024 * 1024;
+// Al abrir un archivo entero, el navegador primero lo pasa a 48 kHz estéreo (≈ 23 MB por minuto).
+const ABIERTO_POR_SEGUNDO = 48000 * 2 * 4;
+// Los MP3 largos se abren por pedazos (así un audio de horas no necesita toda esa memoria a la vez).
+const PEDAZO_MP3_BYTES = 4 * 1024 * 1024;
 // De mejor a peor: la primera que quepa. En los largos baja la calidad para no trabarse.
 const CALIDADES = [
   { tasa: 48000, canales: 2, kbps: 96, nombre: 'completa' },
@@ -31,6 +37,46 @@ const mmss = (s) => {
   const seg = String(t % 60).padStart(2, '0');
   return h ? `${h}:${String(m).padStart(2, '0')}:${seg}` : `${m}:${seg}`;
 };
+
+const esMp3 = (blob) => /mpeg|mp3/.test(blob.type) || /\.mp3$/i.test(blob.name ?? '');
+
+/**
+ * Abre un MP3 por pedazos y lo deja ya en la calidad elegida. Devuelve algo que se usa
+ * igual que un AudioBuffer (sampleRate, numberOfChannels, length, duration, getChannelData).
+ */
+async function abrirPorPedazos(blob, { tasa, canales }, duracion, { alAvanzar, sigue }) {
+  const total = Math.ceil((duracion * 1.02 + 5) * tasa); // la duración de algunos MP3 es aproximada
+  const datos = Array.from({ length: canales }, () => new Float32Array(total));
+  let escrito = 0;
+  for (let desde = 0; desde < blob.size && escrito < total; desde += PEDAZO_MP3_BYTES) {
+    if (!sigue()) throw new Error('cerrado');
+    let parte;
+    try {
+      const bytes = await blob.slice(desde, desde + PEDAZO_MP3_BYTES).arrayBuffer();
+      parte = await new OfflineAudioContext({ numberOfChannels: 1, length: 1, sampleRate: tasa }).decodeAudioData(bytes);
+    } catch {
+      continue; // un pedazo sin audio (por ejemplo, solo la portada)
+    }
+    const n = Math.min(parte.length, total - escrito);
+    const entrada = Array.from({ length: parte.numberOfChannels }, (_, c) => parte.getChannelData(c));
+    if (canales === 1 && entrada.length > 1) {
+      const [izq, der] = entrada;
+      for (let i = 0; i < n; i++) datos[0][escrito + i] = (izq[i] + der[i]) / 2;
+    } else {
+      for (let c = 0; c < canales; c++) datos[c].set(entrada[Math.min(c, entrada.length - 1)].subarray(0, n), escrito);
+    }
+    escrito += n;
+    alAvanzar(Math.min(1, (desde + PEDAZO_MP3_BYTES) / blob.size));
+  }
+  if (!escrito) throw new Error('Ese archivo no se puede abrir');
+  return {
+    sampleRate: tasa,
+    numberOfChannels: canales,
+    length: escrito,
+    duration: escrito / tasa,
+    getChannelData: (c) => datos[c].subarray(0, escrito),
+  };
+}
 
 /** Duración sin decodificar (con un <audio>). */
 function duracionDe(url) {
@@ -108,13 +154,30 @@ export async function abrirRecortador({ blob, titulo, avisar, alGuardar }) {
   let duracion;
   try {
     duracion = await duracionDe(url);
+    // La mejor calidad que quepa en la memoria de este aparato: entero, o (MP3) por pedazos.
+    let porPedazos = false;
+    const pedazoAbierto = ABIERTO_POR_SEGUNDO * duracion * Math.min(1, PEDAZO_MP3_BYTES / blob.size);
     for (const c of CALIDADES) {
-      const bytes = c.tasa * 2 * 4 * duracion; // al decodificar quedan los canales originales (2)
-      if (bytes <= PRESUPUESTO_BYTES && await sePuedeComprimir(c.canales, c.tasa)) { calidad = c; break; }
+      if (!await sePuedeComprimir(c.canales, c.tasa)) continue;
+      const entero = blob.size + ABIERTO_POR_SEGUNDO * duracion + c.tasa * 2 * 4 * duracion; // quedan los 2 canales
+      const pedazos = PEDAZO_MP3_BYTES + pedazoAbierto + c.tasa * c.canales * 4 * duracion;
+      if (entero <= PRESUPUESTO_BYTES) { calidad = c; break; }
+      if (esMp3(blob) && pedazos <= PRESUPUESTO_BYTES) { calidad = c; porPedazos = true; break; }
     }
-    if (!calidad) throw new Error(`Es muy largo para recortarlo aquí (${mmss(duracion)}). Máximo unos 80 minutos.`);
-    const contexto = new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: calidad.tasa });
-    sonido = await contexto.decodeAudioData(await blob.arrayBuffer());
+    if (!calidad) {
+      throw new Error(esMp3(blob)
+        ? `Es muy largo para recortarlo en este aparato (${mmss(duracion)}).`
+        : `Es muy pesado para abrirlo en este aparato (${mmss(duracion)}, ${Math.round(blob.size / 1048576)} MB). Pásalo a MP3 y se puede recortar aunque dure horas.`);
+    }
+    if (porPedazos) {
+      sonido = await abrirPorPedazos(blob, calidad, duracion, {
+        sigue: () => !cerrado,
+        alAvanzar: (f) => { $('.recortador__estado').textContent = `Preparando el audio… ${Math.round(f * 100)}%`; },
+      });
+    } else {
+      const contexto = new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: calidad.tasa });
+      sonido = await contexto.decodeAudioData(await blob.arrayBuffer());
+    }
     duracion = sonido.duration;
   } catch (error) {
     if (!cerrado) {

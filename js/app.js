@@ -4177,7 +4177,9 @@ el.recortarArchivo.addEventListener('change', async () => {
   mostrarAviso(`Abriendo ${archivo.name}…`);
   let meta = { titulo: archivo.name.replace(/\.[^.]+$/, ''), artista: '', album: '', portada: null };
   try {
-    meta = leerMetadatos(await archivo.arrayBuffer(), archivo.name);
+    // Las etiquetas van al inicio: en archivos grandes (videos) no se lee todo solo para eso.
+    const cabeza = archivo.size > 64 * 1024 * 1024 ? archivo.slice(0, 8 * 1024 * 1024) : archivo;
+    meta = leerMetadatos(await cabeza.arrayBuffer(), archivo.name);
     if (!meta.portada && esVideo(archivo)) meta.portada = await portadaDeVideo(archivo);
   } catch { /* sin etiquetas: el nombre del archivo */ }
   el.aviso.hidden = true;
