@@ -10,8 +10,10 @@
  * @param {string} [opciones.subtitulo]
  * @param {{texto: string, peligro?: boolean, alElegir: () => void}[]} [opciones.acciones]
  * @param {{placeholder: string, valor?: string, textoBoton: string, alAceptar: (texto: string) => void}} [opciones.entrada]
+ * @param {HTMLElement} [opciones.contenido]  cualquier otro contenido (ej. un formulario)
+ * @returns {() => void} función para cerrar la hoja
  */
-export function abrirHoja({ titulo, subtitulo, acciones = [], entrada }) {
+export function abrirHoja({ titulo, subtitulo, acciones = [], entrada, contenido }) {
   const fondo = document.createElement('div');
   fondo.className = 'hoja-fondo';
 
@@ -66,6 +68,8 @@ export function abrirHoja({ titulo, subtitulo, acciones = [], entrada }) {
     hoja.append(formulario);
     setTimeout(() => campo.focus(), 50);
   }
+
+  if (contenido) hoja.append(contenido);
 
   for (const accion of [...acciones, { texto: 'Cancelar', alElegir: () => {} }]) {
     const boton = document.createElement('button');

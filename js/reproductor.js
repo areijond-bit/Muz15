@@ -55,14 +55,37 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
     return arreglo;
   }
 
-  // En aleatorio, la canción actual queda primero para que no se repita enseguida.
-  function armarOrden() {
-    const indices = lista.map((_, i) => i);
+  // Arma el orden de reproducción:
+  //  1. Las canciones "pegadas" (vinculadas: cancion.siguienteFija) se apartan.
+  //  2. El resto va en orden o revuelto. En aleatorio, "primera" va al inicio
+  //     para que la canción actual no se repita enseguida.
+  //  3. Detrás de cada canción se mete su cadena de vinculadas: A → B → C.
+  function armarOrden(primera = indice) {
+    const porId = new Map(lista.map((c, i) => [c.id, i]));
+    const siguienteDe = (i) => porId.get(lista[i].siguienteFija);
+
+    const pegadas = new Set();
+    lista.forEach((_, i) => {
+      const s = siguienteDe(i);
+      if (s !== undefined && s !== i) pegadas.add(s);
+    });
+
+    const base = lista.map((_, i) => i).filter((i) => !pegadas.has(i) || i === primera);
     if (aleatorio) {
-      mezclar(indices);
-      if (indice >= 0) indices.unshift(...indices.splice(indices.indexOf(indice), 1));
+      mezclar(base);
+      if (primera >= 0 && base.includes(primera)) base.unshift(...base.splice(base.indexOf(primera), 1));
     }
-    orden = indices;
+
+    const colocadas = new Set();
+    orden = [];
+    for (const i of base) {
+      for (let x = i; x !== undefined && !colocadas.has(x); x = siguienteDe(x)) {
+        orden.push(x);
+        colocadas.add(x);
+      }
+    }
+    // Por si quedó alguna fuera (no debería): al final.
+    lista.forEach((_, i) => { if (!colocadas.has(i)) orden.push(i); });
     posicion = orden.indexOf(indice);
   }
 
@@ -119,7 +142,7 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
     if (nueva >= orden.length) {
       // Se acabó la lista: vuelve a empezar (en aleatorio, con otro orden).
       nueva = 0;
-      if (aleatorio) orden = mezclar(lista.map((_, i) => i));
+      if (aleatorio) armarOrden(-1);
     }
     return reproducir(orden[nueva]);
   }
@@ -228,6 +251,25 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
       indice = desde;
       armarOrden();
       return reproducir(desde);
+    },
+    /**
+     * Pone la versión nueva de las canciones (después de editar títulos o
+     * vínculos) sin cortar la que suena.
+     */
+    refrescar(canciones) {
+      const actual = lista[indice];
+      const mismas = canciones.length === lista.length && lista.every((c) => canciones.some((n) => n.id === c.id));
+      if (mismas) {
+        // Es la misma lista que suena (quizá reacomodada): tomamos su nuevo orden.
+        lista = canciones;
+        indice = actual ? lista.findIndex((c) => c.id === actual.id) : -1;
+      } else {
+        const nuevas = new Map(canciones.map((c) => [c.id, c]));
+        lista = lista.map((c) => nuevas.get(c.id) ?? c);
+      }
+      armarOrden();
+      if (lista[indice]) actualizarMediaSession(lista[indice]);
+      avisar();
     },
     /** Activa o quita el modo aleatorio sin cortar la canción actual. */
     cambiarAleatorio(activar) {

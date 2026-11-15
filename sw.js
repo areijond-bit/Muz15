@@ -6,7 +6,7 @@
 // IMPORTANTE: cada vez que publiques cambios, sube el número de VERSION.
 // Así el teléfono sabe que tiene que descargar la versión nueva.
 
-const VERSION = 'muz15-v6';
+const VERSION = 'muz15-v7';
 
 const ARCHIVOS_APP = [
   './',
@@ -20,6 +20,7 @@ const ARCHIVOS_APP = [
   'js/servidor.js',
   'js/md5.js',
   'js/hoja.js',
+  'js/arrastrar.js',
   'icons/icono-180.png',
   'icons/icono-192.png',
   'icons/icono-512.png',

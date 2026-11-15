@@ -78,11 +78,35 @@ export async function guardarCancion(cancion, audio) {
   await transaccionTerminada(tx);
 }
 
+/** Cambia los datos de una canción (título, artista, portada, vínculo...) sin tocar su audio. */
+export async function actualizarCancion(cancion) {
+  const db = await abrirDB();
+  const tx = db.transaction(CANCIONES, 'readwrite');
+  tx.objectStore(CANCIONES).put(cancion);
+  await transaccionTerminada(tx);
+}
+
 /** Devuelve todas las canciones (sin el audio), en el orden en que se importaron. */
 export async function listarCanciones() {
   const db = await abrirDB();
   const lista = await comoPromesa(db.transaction(CANCIONES).objectStore(CANCIONES).getAll());
-  return lista.sort((a, b) => a.agregada - b.agregada);
+  // "orden" existe cuando las acomodaste arrastrando; si no, por fecha de importación.
+  const posicion = (c) => c.orden ?? c.agregada;
+  return lista.sort((a, b) => posicion(a) - posicion(b) || a.agregada - b.agregada);
+}
+
+/** Guarda el orden en que acomodaste las canciones (ids de la primera a la última). */
+export async function guardarOrden(ids) {
+  const db = await abrirDB();
+  const tx = db.transaction(CANCIONES, 'readwrite');
+  const almacen = tx.objectStore(CANCIONES);
+  ids.forEach((id, i) => {
+    almacen.get(id).onsuccess = (evento) => {
+      const cancion = evento.target.result;
+      if (cancion) almacen.put({ ...cancion, orden: i });
+    };
+  });
+  await transaccionTerminada(tx);
 }
 
 /** Devuelve el audio de una canción como Blob, listo para el <audio>. */

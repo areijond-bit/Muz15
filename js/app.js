@@ -2,8 +2,9 @@
 
 import {
   guardarCancion, listarCanciones, obtenerAudio, borrarCancion, pedirAlmacenamientoPersistente, espacioUsado,
-  listarListas, guardarLista, borrarLista,
+  listarListas, guardarLista, borrarLista, actualizarCancion, guardarOrden,
 } from './db.js';
+import { activarArrastre } from './arrastrar.js';
 import { leerMetadatos } from './metadatos.js';
 import { crearReproductor } from './reproductor.js';
 import * as servidor from './servidor.js';
@@ -156,23 +157,35 @@ function portadaDeVideo(archivo) {
     video.preload = 'auto';
     video.onerror = () => terminar(null);
     video.onloadedmetadata = () => { video.currentTime = Math.min(3, (video.duration || 0) / 2); };
-    video.onseeked = () => {
-      const lado = Math.min(video.videoWidth, video.videoHeight);
-      if (!lado) return terminar(null);
-      const tamano = Math.min(lado, 600);
-      const lienzo = document.createElement('canvas');
-      lienzo.width = lienzo.height = tamano;
-      lienzo.getContext('2d').drawImage(
-        video,
-        (video.videoWidth - lado) / 2, (video.videoHeight - lado) / 2, lado, lado,
-        0, 0, tamano, tamano,
-      );
-      lienzo.toBlob(async (blob) => {
-        terminar(blob ? { datos: await blob.arrayBuffer(), tipo: 'image/jpeg' } : null);
-      }, 'image/jpeg', 0.85);
-    };
+    video.onseeked = async () => terminar(await recortarCuadrado(video, video.videoWidth, video.videoHeight));
     video.src = url;
   });
+}
+
+/**
+ * Recorta el centro de una imagen o video en un cuadrado de hasta 600 px y lo
+ * devuelve como portada JPEG ({datos, tipo}), o null si no se pudo.
+ */
+function recortarCuadrado(fuente, ancho, alto) {
+  const lado = Math.min(ancho, alto);
+  if (!lado) return Promise.resolve(null);
+  const tamano = Math.min(lado, 600);
+  const lienzo = document.createElement('canvas');
+  lienzo.width = lienzo.height = tamano;
+  lienzo.getContext('2d').drawImage(fuente, (ancho - lado) / 2, (alto - lado) / 2, lado, lado, 0, 0, tamano, tamano);
+  return new Promise((resolve) => {
+    lienzo.toBlob(async (blob) => {
+      resolve(blob ? { datos: await blob.arrayBuffer(), tipo: 'image/jpeg' } : null);
+    }, 'image/jpeg', 0.85);
+  });
+}
+
+/** Convierte una foto elegida por el usuario en portada cuadrada. */
+async function portadaDeImagen(archivo) {
+  const imagen = await createImageBitmap(archivo);
+  const portada = await recortarCuadrado(imagen, imagen.width, imagen.height);
+  imagen.close();
+  return portada;
 }
 
 /* ---------- Lista ---------- */
@@ -180,6 +193,7 @@ function portadaDeVideo(archivo) {
 async function recargarLista() {
   [cancionesLocales, listas] = await Promise.all([listarCanciones(), listarListas()]);
   liberarPortadasHuerfanas();
+  reproductor.refrescar(cancionesLocales); // por si cambiaron títulos o vínculos
   pintarLista(cancionesLocales);
   pintarListas();
   pintarEspacio();
@@ -195,7 +209,7 @@ function pintarLista(canciones) {
   el.vacio.hidden = canciones.length > 0;
   el.lista.replaceChildren(...canciones.map((cancion, i) => {
     const menu = botonMenu(cancion, () => menuCancion(cancion));
-    return crearFila(cancion, urlDePortada(cancion), menu, () => reproductor.reproducirLista(cancionesLocales, i));
+    return crearFila(cancion, urlDePortada(cancion), menu, () => reproductor.reproducirLista(cancionesLocales, i), { arrastrable: true });
   }));
 
   marcarSonando(reproductor.estado().cancion);
@@ -222,6 +236,10 @@ function menuCancion(cancion) {
     subtitulo: cancion.artista,
     acciones: [
       { texto: '+ Agregar a una lista', alElegir: () => elegirLista(cancion) },
+      { texto: '✎ Editar título, artista y portada', alElegir: () => editarCancion(cancion) },
+      cancion.siguienteFija && porId(cancion.siguienteFija)
+        ? { texto: `⛓ Quitar vínculo con "${porId(cancion.siguienteFija).titulo}"`, alElegir: () => vincular(cancion, null) }
+        : { texto: '⛓ Vincular: que siempre siga otra canción', alElegir: () => elegirVinculo(cancion) },
       {
         texto: 'Borrar del teléfono',
         peligro: true,
@@ -253,6 +271,130 @@ function elegirLista(cancion) {
       })),
     ],
   });
+}
+
+const porId = (id) => cancionesLocales.find((c) => c.id === id) ?? null;
+
+/* ---------- Editar una canción ---------- */
+
+const SIN_ARTISTA = 'Artista desconocido';
+
+function editarCancion(cancion) {
+  let nuevaPortada; // undefined = no se cambió
+
+  const formulario = document.createElement('form');
+  formulario.className = 'hoja__formulario editor';
+  formulario.innerHTML = `
+    <div class="editor__portada">
+      <img class="editor__imagen" alt="Portada">
+      <label class="boton boton--secundario">
+        Cambiar portada
+        <input type="file" accept="image/*" hidden>
+      </label>
+    </div>
+    <label class="campo"><span class="campo__etiqueta">Título</span><input class="campo__entrada" name="titulo" required maxlength="120"></label>
+    <label class="campo"><span class="campo__etiqueta">Artista</span><input class="campo__entrada" name="artista" required maxlength="120"></label>
+    <label class="campo"><span class="campo__etiqueta">Álbum</span><input class="campo__entrada" name="album" maxlength="120"></label>
+    <label class="casilla" hidden><input type="checkbox" name="todas"> <span></span></label>
+    <button class="boton boton--primario boton--ancho" type="submit">Guardar</button>`;
+
+  const imagen = formulario.querySelector('.editor__imagen');
+  const campos = formulario.elements;
+  imagen.src = urlDePortada(cancion);
+  campos.titulo.value = cancion.titulo;
+  campos.artista.value = cancion.artista === SIN_ARTISTA ? '' : cancion.artista;
+  campos.album.value = cancion.album ?? '';
+
+  // Si hay otras canciones sin artista, ofrece ponerles el mismo de un jalón.
+  const sinArtista = cancionesLocales.filter((c) => c.artista === SIN_ARTISTA && c.id !== cancion.id);
+  const casilla = formulario.querySelector('.casilla');
+  if (sinArtista.length) {
+    casilla.hidden = false;
+    casilla.querySelector('span').textContent = `Poner este artista también en las otras ${sinArtista.length} canciones sin artista`;
+  }
+
+  formulario.querySelector('input[type="file"]').addEventListener('change', async (evento) => {
+    const archivo = evento.target.files[0];
+    if (!archivo) return;
+    try {
+      nuevaPortada = await portadaDeImagen(archivo);
+      imagen.src = URL.createObjectURL(new Blob([nuevaPortada.datos], { type: nuevaPortada.tipo }));
+    } catch (error) {
+      mostrarAviso(`No se pudo usar esa imagen: ${error.message}`, 5000);
+    }
+  });
+
+  formulario.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    cerrar();
+    const artista = campos.artista.value.trim();
+    const cambios = {
+      titulo: campos.titulo.value.trim(),
+      artista,
+      album: campos.album.value.trim(),
+      ...(nuevaPortada !== undefined && { portada: nuevaPortada }),
+    };
+    if (portadas.has(cancion.id) && nuevaPortada !== undefined) {
+      URL.revokeObjectURL(portadas.get(cancion.id));
+      portadas.delete(cancion.id);
+    }
+    await actualizarCancion({ ...cancion, ...cambios });
+    if (campos.todas.checked) {
+      for (const otra of sinArtista) await actualizarCancion({ ...otra, artista });
+    }
+    await recargarLista();
+    mostrarAviso('Cambios guardados.', 2500);
+  });
+
+  const cerrar = abrirHoja({ titulo: 'Editar canción', contenido: formulario });
+}
+
+/* ---------- Vincular canciones ---------- */
+// "A → B": cuando termina A (o pulsas siguiente), siempre suena B, en modo
+// continuo o aleatorio. Sirve para canciones con transición pegada.
+
+/** ¿Seguir la cadena desde "desde" llega a "hasta"? (para no hacer círculos) */
+function cadenaLlegaA(desde, hasta) {
+  const vistos = new Set();
+  for (let c = desde; c && !vistos.has(c.id); c = porId(c.siguienteFija)) {
+    if (c.id === hasta.id) return true;
+    vistos.add(c.id);
+  }
+  return false;
+}
+
+function elegirVinculo(cancion) {
+  const opciones = cancionesLocales.filter((c) => c.id !== cancion.id && !cadenaLlegaA(c, cancion));
+  abrirHoja({
+    titulo: '¿Qué canción va después?',
+    subtitulo: `Después de "${cancion.titulo}" siempre sonará la que elijas.`,
+    acciones: opciones.map((otra) => ({
+      texto: `${otra.titulo} — ${otra.artista}`,
+      alElegir: () => vincular(cancion, otra),
+    })),
+  });
+}
+
+async function vincular(cancion, siguiente) {
+  // Una canción solo puede ir pegada detrás de una: si ya tenía otra antes, se suelta.
+  if (siguiente) {
+    for (const otra of cancionesLocales) {
+      if (otra.siguienteFija === siguiente.id && otra.id !== cancion.id) {
+        await actualizarCancion({ ...otra, siguienteFija: null });
+      }
+    }
+  }
+  await actualizarCancion({ ...cancion, siguienteFija: siguiente?.id ?? null });
+  await recargarLista();
+  mostrarAviso(siguiente
+    ? `Listo: después de "${cancion.titulo}" siempre sonará "${siguiente.titulo}".`
+    : `Se quitó el vínculo de "${cancion.titulo}".`, 4000);
+}
+
+/** Texto bajo el título: el artista, y si tiene vínculo, a qué canción lleva. */
+function subtitulo(cancion) {
+  const siguiente = cancion.siguienteFija && porId(cancion.siguienteFija);
+  return siguiente ? `${cancion.artista}  ·  ⛓ luego "${siguiente.titulo}"` : cancion.artista;
 }
 
 async function agregarALista(lista, cancion) {
@@ -328,10 +470,28 @@ function pintarListas() {
       subtitulo: cancion.artista,
       acciones: [{ texto: `Quitar de "${abierta.nombre}"`, alElegir: () => quitarDeLista(abierta, cancion) }],
     }));
-    return crearFila(cancion, urlDePortada(cancion), menu, () => reproductor.reproducirLista(canciones, i));
+    return crearFila(cancion, urlDePortada(cancion), menu, () => reproductor.reproducirLista(canciones, i), { arrastrable: true });
   }));
   marcarSonando(reproductor.estado().cancion);
 }
+
+/* ---------- Acomodar arrastrando ---------- */
+
+activarArrastre(el.lista, async (ids) => {
+  await guardarOrden(ids);
+  await recargarLista();
+});
+
+activarArrastre(el.cancionesLista, async (ids) => {
+  const lista = listas.find((l) => l.id === listaAbierta);
+  if (!lista) return;
+  // Las que no están en pantalla (canciones borradas) se quedan al final.
+  const resto = lista.canciones.filter((id) => !ids.includes(id));
+  await guardarLista({ ...lista, canciones: [...ids, ...resto] });
+  await recargarLista();
+  const actualizada = listas.find((l) => l.id === listaAbierta);
+  if (actualizada) reproductor.refrescar(cancionesDe(actualizada));
+});
 
 el.reproducirLista.addEventListener('click', () => {
   const lista = listas.find((l) => l.id === listaAbierta);
@@ -386,11 +546,22 @@ function menuLista(lista) {
   });
 }
 
-/** Una fila de canción: portada, título, artista y un botón a la derecha. */
-function crearFila(cancion, portada, boton, alTocar) {
+/**
+ * Una fila de canción: portada, título, artista y un botón a la derecha.
+ * Con arrastrable, lleva a la izquierda la agarradera ⋮⋮ para acomodarla.
+ */
+function crearFila(cancion, portada, boton, alTocar, { arrastrable = false } = {}) {
   const li = document.createElement('li');
   li.className = 'cancion';
   li.dataset.id = cancion.id;
+
+  if (arrastrable) {
+    const agarradera = document.createElement('span');
+    agarradera.className = 'cancion__arrastre';
+    agarradera.setAttribute('aria-label', 'Arrastra para mover');
+    agarradera.textContent = '⋮⋮';
+    li.append(agarradera);
+  }
 
   const img = document.createElement('img');
   img.className = 'cancion__portada';
@@ -403,7 +574,8 @@ function crearFila(cancion, portada, boton, alTocar) {
   info.className = 'cancion__info';
   info.innerHTML = '<p class="cancion__titulo"></p><p class="cancion__artista"></p>';
   info.children[0].textContent = cancion.titulo;
-  info.children[1].textContent = cancion.artista;
+  // Las canciones del teléfono muestran también su vínculo, si tienen.
+  info.children[1].textContent = cancion.agregada ? subtitulo(cancion) : cancion.artista;
 
   li.append(img, info, boton);
   li.addEventListener('click', alTocar);

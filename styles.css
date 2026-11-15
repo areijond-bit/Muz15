@@ -246,6 +246,32 @@ button { font: inherit; color: inherit; }
 
 .cancion--sonando .cancion__titulo { color: var(--color-acento); }
 
+/* Agarradera para arrastrar (⋮⋮) */
+.cancion__arrastre {
+  width: 24px;
+  margin-right: calc(var(--espacio-s) * -1);
+  flex-shrink: 0;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  color: var(--color-texto-suave);
+  letter-spacing: -3px;
+  cursor: grab;
+  touch-action: none;   /* que el dedo arrastre la fila y no la página */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.cancion--arrastrando {
+  position: relative;
+  z-index: 1;
+  background: var(--color-superficie-activa);
+  outline: 1px solid var(--color-acento);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+.cancion--arrastrando .cancion__arrastre { color: var(--color-acento); cursor: grabbing; }
+
 .cancion__portada {
   width: var(--portada-lista);
   height: var(--portada-lista);
@@ -443,6 +469,38 @@ button { font: inherit; color: inherit; }
 .hoja__accion--peligro { color: var(--color-peligro); font-weight: var(--peso-fuerte); }
 
 .hoja__accion:last-child { color: var(--color-texto-suave); text-align: center; }
+
+/* Editor de canción */
+.editor__portada {
+  display: flex;
+  align-items: center;
+  gap: var(--espacio-m);
+}
+
+.editor__imagen {
+  width: 96px;
+  height: 96px;
+  border-radius: var(--radio-m);
+  object-fit: cover;
+  background: var(--color-superficie-activa);
+}
+
+.boton--secundario {
+  border: 1px solid var(--color-borde);
+  background: var(--color-superficie-activa);
+  color: var(--color-texto);
+}
+
+.casilla {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--espacio-s);
+  color: var(--color-texto-suave);
+  font-size: var(--texto-s);
+  line-height: 1.4;
+}
+
+.casilla input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--color-acento); }
 
 /* =========================================================
    LISTAS
