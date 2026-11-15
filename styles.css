@@ -383,6 +383,100 @@ button { font: inherit; color: inherit; }
 
 .boton-icono:disabled { opacity: 0.4; }
 
+/* =========================================================
+   HOJA (menú que sube desde abajo)
+   ========================================================= */
+.hoja-fondo {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.hoja {
+  width: 100%;
+  max-width: 520px;
+  max-height: 80dvh;
+  overflow-y: auto;
+  padding: var(--espacio-l) var(--espacio-m);
+  padding-bottom: calc(var(--espacio-m) + env(safe-area-inset-bottom));
+  border-radius: var(--radio-l) var(--radio-l) 0 0;
+  background: var(--color-superficie);
+}
+
+.hoja__titulo {
+  margin: 0 0 var(--espacio-xs);
+  font-size: var(--texto-l);
+  font-weight: var(--peso-fuerte);
+}
+
+.hoja__subtitulo {
+  margin: 0 0 var(--espacio-m);
+  color: var(--color-texto-suave);
+  font-size: var(--texto-s);
+}
+
+.hoja__formulario {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espacio-s);
+  margin: var(--espacio-m) 0;
+}
+
+.hoja__accion {
+  display: block;
+  width: 100%;
+  padding: var(--espacio-m);
+  border: 0;
+  border-radius: var(--radio-m);
+  background: transparent;
+  text-align: left;
+  font-size: var(--texto-m);
+  cursor: pointer;
+}
+
+.hoja__accion:active { background: var(--color-superficie-activa); }
+
+.hoja__accion--peligro { color: var(--color-peligro); font-weight: var(--peso-fuerte); }
+
+.hoja__accion:last-child { color: var(--color-texto-suave); text-align: center; }
+
+/* =========================================================
+   LISTAS
+   ========================================================= */
+.encabezado-lista {
+  display: flex;
+  align-items: center;
+  gap: var(--espacio-s);
+  margin-bottom: var(--espacio-m);
+}
+
+.encabezado-lista__nombre {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--texto-l);
+  font-weight: var(--peso-fuerte);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portada-lista {
+  width: var(--portada-lista);
+  height: var(--portada-lista);
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radio-s);
+  background: var(--color-superficie-activa);
+  color: var(--color-acento);
+  font-size: var(--texto-l);
+}
+
 /* En pantallas angostas el reproductor se apila en dos filas */
 @media (max-width: 380px) {
   .reproductor { flex-wrap: wrap; }
