@@ -6,7 +6,7 @@
 // IMPORTANTE: cada vez que publiques cambios, sube el número de VERSION.
 // Así el teléfono sabe que tiene que descargar la versión nueva.
 
-const VERSION = 'muz15-v36';
+const VERSION = 'muz15-v37';
 
 const ARCHIVOS_APP = [
   './',
@@ -44,7 +44,9 @@ const ARCHIVOS_APP = [
 self.addEventListener('install', (evento) => {
   evento.waitUntil(
     caches.open(VERSION)
-      .then((cache) => cache.addAll(ARCHIVOS_APP))
+      // cache: 'reload' = pedirlos frescos a internet, no la copia que el navegador
+      // tenga guardada (GitHub la deja 10 min y se mezclaban versiones).
+      .then((cache) => cache.addAll(ARCHIVOS_APP.map((url) => new Request(url, { cache: 'reload' }))))
       .then(() => self.skipWaiting()),
   );
 });
