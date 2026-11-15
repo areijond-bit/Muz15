@@ -98,6 +98,8 @@ public class ServicioMusica extends MediaSessionService {
     @Override
     public void onDestroy() {
         instancia = null;
+        animando = false;
+        manejador.removeCallbacks(pasoAnimacion);
         if (efectos != null) {
             efectos.release();
             efectos = null;
@@ -123,19 +125,74 @@ public class ServicioMusica extends MediaSessionService {
 
     /** @param nuevos 8 valores de -1 (izquierda) a 1 (derecha) */
     void ponerEco(float[] nuevos) {
-        lados = nuevos.clone();
-        aplicarEfectos();
+        ladosFijos = nuevos.clone();
+        if (!animando) {
+            lados = ladosFijos.clone();
+            aplicarEfectos();
+        }
     }
 
+    // Cuánto sube el oído hacia el que mandas una banda, y lo mínimo que se oye el otro.
+    private static final float REFUERZO_LADO_DB = 3f;
+    private static final float MINIMO_OTRO_LADO = 0.03f; // ≈ -30 dB: se nota el lado sin desaparecer
+
     /**
-     * Cuánto se baja una banda en un oído según hacia dónde la mandaste.
-     * En el centro, nada; al mandarla a un lado, el otro oído se va apagando.
+     * Ganancia de una banda en un oído según hacia dónde la mandaste (-1 izquierda … 1 derecha).
+     * El oído hacia el que va sube un poco (hasta +3 dB, para que se siga oyendo bien);
+     * el otro baja (hasta unos -30 dB). En el centro, ninguno cambia.
      */
-    private static float atenuacionDb(float lado, boolean oidoIzquierdo) {
-        float hacia = oidoIzquierdo ? -lado : lado; // > 0 = se aleja de este oído
-        if (hacia <= 0f) return 0f;
-        float queda = Math.max(1f - hacia, 0.001f); // 0.001 ≈ -60 dB (casi silencio)
+    private static float gananciaPorOidoDb(float lado, boolean oidoIzquierdo) {
+        float haciaEste = oidoIzquierdo ? -lado : lado; // > 0 = la banda va hacia este oído
+        if (haciaEste >= 0f) return REFUERZO_LADO_DB * haciaEste;
+        float queda = Math.max(1f + haciaEste, MINIMO_OTRO_LADO);
         return (float) (20 * Math.log10(queda));
+    }
+
+    /* ---------- Animación del modo eco ---------- */
+    // El sonido va y viene solo entre "desde" y "hasta" (-1 izq … 1 der), con un ciclo de
+    // "segundos". En "ola", cada banda va un poco detrás de la anterior. Corre aquí en el
+    // servicio, así sigue aunque cierres la app.
+
+    private static final long PASO_ANIMACION_MS = 40;
+    private float[] ladosFijos = new float[8]; // lo que pusiste a mano (vuelve al apagar la animación)
+    private boolean animando = false;
+    private float animDesde = -1f, animHasta = 1f;
+    private long animCicloMs = 8000;
+    private boolean animOla = false;
+    private long animInicio = 0;
+    private final android.os.Handler manejador = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    private final Runnable pasoAnimacion = new Runnable() {
+        @Override
+        public void run() {
+            if (!animando) return;
+            double t = (double) (System.currentTimeMillis() - animInicio) / animCicloMs;
+            for (int i = 0; i < lados.length; i++) {
+                double fase = animOla ? i / (double) lados.length : 0; // en ola, cada banda más atrasada
+                // De "desde" a "hasta" y de regreso, suave (como un péndulo).
+                double s = 0.5 - 0.5 * Math.cos(2 * Math.PI * (t - fase));
+                lados[i] = (float) (animDesde + (animHasta - animDesde) * s);
+            }
+            aplicarEcualizadorPorOido();
+            manejador.postDelayed(this, PASO_ANIMACION_MS);
+        }
+    };
+
+    void animarEco(boolean activar, float desde, float hasta, double segundos, boolean ola) {
+        animDesde = Math.max(-1f, Math.min(1f, desde));
+        animHasta = Math.max(-1f, Math.min(1f, hasta));
+        animCicloMs = (long) (Math.max(1, Math.min(120, segundos)) * 1000);
+        animOla = ola;
+        manejador.removeCallbacks(pasoAnimacion);
+        if (activar) {
+            if (!animando) animInicio = System.currentTimeMillis();
+            animando = true;
+            manejador.post(pasoAnimacion);
+        } else {
+            animando = false;
+            lados = ladosFijos.clone();
+            aplicarEcualizadorPorOido();
+        }
     }
 
     /** @param umbralDb dónde empieza a frenar (dB respecto al máximo, ≤ 0); null = sin tope */
@@ -174,13 +231,7 @@ public class ServicioMusica extends MediaSessionService {
                     if (tieneControl) aplicarEfectos();
                 });
             }
-            // Canal 0 = oído izquierdo, canal 1 = oído derecho.
-            for (int canal = 0; canal < 2; canal++) {
-                for (int i = 0; i < CORTES_HZ.length; i++) {
-                    float ganancia = ganancias[i] + atenuacionDb(lados[i], canal == 0);
-                    efectos.setPreEqBandByChannelIndex(canal, i, new DynamicsProcessing.EqBand(true, CORTES_HZ[i], ganancia));
-                }
-            }
+            ponerBandas();
             // El limitador SIEMPRE está encendido:
             //  - con volumen seguro: frena en el tope elegido;
             //  - sin volumen seguro: frena justo antes del máximo (-1 dB), solo para que
@@ -199,6 +250,29 @@ public class ServicioMusica extends MediaSessionService {
                 try { efectos.release(); } catch (Exception ignorar) { /* nada */ }
                 efectos = null;
             }
+        }
+    }
+
+    // Ecualizador + modo eco: canal 0 = oído izquierdo, canal 1 = oído derecho.
+    private void ponerBandas() {
+        for (int canal = 0; canal < 2; canal++) {
+            for (int i = 0; i < CORTES_HZ.length; i++) {
+                float ganancia = ganancias[i] + gananciaPorOidoDb(lados[i], canal == 0);
+                efectos.setPreEqBandByChannelIndex(canal, i, new DynamicsProcessing.EqBand(true, CORTES_HZ[i], ganancia));
+            }
+        }
+    }
+
+    /** Solo las bandas (lo que cambia la animación muchas veces por segundo). */
+    private void aplicarEcualizadorPorOido() {
+        if (efectos == null) {
+            aplicarEfectos();
+            return;
+        }
+        try {
+            ponerBandas();
+        } catch (Exception error) {
+            ultimoErrorEfectos = error.getClass().getSimpleName() + ": " + error.getMessage();
         }
     }
 }

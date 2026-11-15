@@ -215,6 +215,20 @@ public class ReproductorPlugin extends Plugin {
         });
     }
 
+    /** Animación del modo eco: { activo, desde, hasta (-1 izq … 1 der), segundos, ola } */
+    @PluginMethod
+    public void animarEco(PluginCall llamada) {
+        boolean activo = llamada.getBoolean("activo", false);
+        float desde = llamada.getFloat("desde", -1f);
+        float hasta = llamada.getFloat("hasta", 1f);
+        double segundos = llamada.getDouble("segundos", 8.0);
+        boolean ola = llamada.getBoolean("ola", false);
+        conServicio(llamada, (s) -> {
+            s.animarEco(activo, desde, hasta, segundos, ola);
+            llamada.resolve();
+        });
+    }
+
     /** Para el registro de diagnóstico: ¿los efectos están creados y con el control? */
     @PluginMethod
     public void diagnostico(PluginCall llamada) {

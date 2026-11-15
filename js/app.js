@@ -2000,17 +2000,33 @@ const PERFILES_ECO = {
   vozCentro: { nombre: 'Voz al centro, instrumentos a los lados', lados: [-0.6, 0.6, 0, 0, 0, -0.6, 0.6, -0.6] },
   giro: { nombre: 'De izquierda a derecha', lados: [-1, -0.7, -0.4, -0.1, 0.1, 0.4, 0.7, 1] },
 };
-let estadoEco = { activo: false, perfil: 'centro', lados: [...PERFILES_ECO.centro.lados] };
+// Animación: el sonido va y viene solo entre "desde" y "hasta" (-1 izq … 1 der),
+// con un ciclo de "segundos". "ola" = cada zona va un poco detrás de la anterior.
+const ANIMACION_INICIAL = { activo: false, desde: -0.8, hasta: 0.8, segundos: 8, ola: false };
+let estadoEco = { activo: false, perfil: 'centro', lados: [...PERFILES_ECO.centro.lados], animacion: { ...ANIMACION_INICIAL } };
 try {
   const guardado = JSON.parse(localStorage.getItem(CLAVE_ECO));
-  if (guardado?.lados?.length === BANDAS.length) estadoEco = guardado;
+  if (guardado?.lados?.length === BANDAS.length) {
+    estadoEco = { ...estadoEco, ...guardado, animacion: { ...ANIMACION_INICIAL, ...guardado.animacion } };
+  }
 } catch { /* nada */ }
+
+function enviarAnimacion() {
+  if (!hayReproductorNativo) return;
+  const { activo, desde, hasta, segundos, ola } = estadoEco.animacion;
+  Reproductor.animarEco({ activo: estadoEco.activo && activo, desde, hasta, segundos, ola })
+    .catch((error) => console.warn('Animación de eco:', error.message));
+}
 
 function aplicarEco() {
   ecualizador.ponerEco(estadoEco.activo ? estadoEco.lados : BANDAS.map(() => 0));
+  enviarAnimacion();
   try { localStorage.setItem(CLAVE_ECO, JSON.stringify(estadoEco)); } catch { /* nada */ }
 }
-if (estadoEco.activo) ecualizador.ponerEco(estadoEco.lados);
+if (estadoEco.activo) {
+  ecualizador.ponerEco(estadoEco.lados);
+  enviarAnimacion();
+}
 
 // Qué suele sonar en cada zona (para que sepas qué estás moviendo).
 const QUE_SUENA = ['Bombo', 'Bajo', 'Cuerpo', 'Voz', 'Guitarra', 'Ataque', 'Platillos', 'Aire'];
@@ -2031,10 +2047,62 @@ function abrirModoEco() {
       <input type="checkbox" role="switch">
     </label>
     <div class="eco__bandas"></div>
-    <div class="eq__perfiles"></div>`;
+    <div class="eq__perfiles"></div>
+    <div class="eco__animacion">
+      <label class="eq__interruptor">
+        <span>Animación (va y viene sola)</span>
+        <input type="checkbox" role="switch" name="animar">
+      </label>
+      <label class="eco__banda">
+        <span class="eco__nombre"><strong>Desde</strong></span>
+        <span class="eco__lado">Izq</span>
+        <input type="range" min="-1" max="1" step="0.05" name="desde" aria-label="Desde qué tan a la izquierda">
+        <span class="eco__lado">Der</span>
+      </label>
+      <label class="eco__banda">
+        <span class="eco__nombre"><strong>Hasta</strong></span>
+        <span class="eco__lado">Izq</span>
+        <input type="range" min="-1" max="1" step="0.05" name="hasta" aria-label="Hasta qué tan a la derecha">
+        <span class="eco__lado">Der</span>
+      </label>
+      <label class="eco__banda">
+        <span class="eco__nombre"><strong>Ciclo</strong> <span class="eco__segundos"></span></span>
+        <span class="eco__lado">1 s</span>
+        <input type="range" min="1" max="30" step="1" name="segundos" aria-label="Segundos que dura cada ida y vuelta">
+        <span class="eco__lado">30 s</span>
+      </label>
+      <div class="eq__perfiles eco__estilos">
+        <button type="button" class="eq__perfil" data-ola="no">Todas juntas</button>
+        <button type="button" class="eq__perfil" data-ola="si">En ola</button>
+      </div>
+    </div>`;
   const interruptor = panel.querySelector('input[role="switch"]');
   const bandas = panel.querySelector('.eco__bandas');
   const perfiles = panel.querySelector('.eq__perfiles');
+  const animacion = panel.querySelector('.eco__animacion');
+  const anim = {
+    interruptor: animacion.querySelector('[name="animar"]'),
+    desde: animacion.querySelector('[name="desde"]'),
+    hasta: animacion.querySelector('[name="hasta"]'),
+    segundos: animacion.querySelector('[name="segundos"]'),
+    textoSegundos: animacion.querySelector('.eco__segundos'),
+    estilos: animacion.querySelectorAll('.eco__estilos button'),
+  };
+
+  // Cualquier cambio en la animación la enciende (y al modo eco) y se manda al reproductor.
+  const cambiarAnimacion = (cambios) => {
+    estadoEco.animacion = { ...estadoEco.animacion, ...cambios };
+    if (estadoEco.animacion.activo) estadoEco.activo = true;
+    aplicarEco();
+    pintar();
+  };
+  anim.interruptor.addEventListener('change', () => cambiarAnimacion({ activo: anim.interruptor.checked }));
+  anim.desde.addEventListener('input', () => cambiarAnimacion({ desde: Number(anim.desde.value), activo: true }));
+  anim.hasta.addEventListener('input', () => cambiarAnimacion({ hasta: Number(anim.hasta.value), activo: true }));
+  anim.segundos.addEventListener('input', () => cambiarAnimacion({ segundos: Number(anim.segundos.value), activo: true }));
+  for (const boton of anim.estilos) {
+    boton.addEventListener('click', () => cambiarAnimacion({ ola: boton.dataset.ola === 'si', activo: true }));
+  }
 
   const controles = BANDAS.map((hz, i) => {
     const fila = document.createElement('label');
@@ -2069,7 +2137,7 @@ function abrirModoEco() {
     boton.dataset.perfil = clave;
     boton.textContent = nombre;
     boton.addEventListener('click', () => {
-      estadoEco = { activo: clave !== 'centro' || estadoEco.activo, perfil: clave, lados: [...lados] };
+      estadoEco = { ...estadoEco, activo: clave !== 'centro' || estadoEco.activo, perfil: clave, lados: [...lados] };
       aplicarEco();
       pintar();
     });
@@ -2086,6 +2154,15 @@ function abrirModoEco() {
     interruptor.checked = estadoEco.activo;
     panel.classList.toggle('eq--apagado', !estadoEco.activo);
     controles.forEach((barra, i) => { barra.value = estadoEco.lados[i]; });
+    const a = estadoEco.animacion;
+    anim.interruptor.checked = a.activo;
+    anim.desde.value = a.desde;
+    anim.hasta.value = a.hasta;
+    anim.segundos.value = a.segundos;
+    anim.textoSegundos.textContent = `${a.segundos} s`;
+    for (const boton of anim.estilos) boton.classList.toggle('eq__perfil--activo', a.activo && (boton.dataset.ola === 'si') === a.ola);
+    // Mientras se anima, las barras de arriba no mandan (se mueven solas).
+    bandas.classList.toggle('eco__bandas--animando', estadoEco.activo && a.activo);
     for (const boton of perfiles.children) {
       boton.classList.toggle('eq__perfil--activo', boton.dataset.perfil === estadoEco.perfil);
     }
@@ -2094,7 +2171,7 @@ function abrirModoEco() {
   pintar();
   abrirHoja({
     titulo: '🎧 Modo eco',
-    subtitulo: 'Mueve cada zona del sonido hacia un oído. Doble toque en una barra = al centro. Mejor con audífonos.',
+    subtitulo: 'Mueve cada zona del sonido hacia un oído (o enciende la animación para que vaya y venga sola). Doble toque en una barra = al centro. Mejor con audífonos.',
     contenido: panel,
   });
 }

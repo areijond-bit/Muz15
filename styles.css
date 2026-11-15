@@ -674,6 +674,17 @@ button { font: inherit; color: inherit; }
 .eco__lado { font-size: var(--texto-xs); color: var(--color-texto-suave); }
 .eco__banda input[type="range"] { width: 100%; accent-color: var(--color-acento); }
 .eq--apagado .eco__banda input { accent-color: var(--color-texto-suave); }
+
+/* Animación del modo eco */
+.eco__animacion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espacio-s);
+  padding-top: var(--espacio-m);
+  border-top: 1px solid var(--color-borde);
+}
+.eco__segundos { color: var(--color-acento); }
+.eco__bandas--animando { opacity: 0.4; pointer-events: none; }
 .volumen__nota { text-align: left; line-height: 1.5; }
 .eq--apagado .eq__banda input { accent-color: var(--color-texto-suave); }
 
