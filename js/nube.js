@@ -230,7 +230,7 @@ async function subirCancion(cancion) {
       titulo: (cancion.titulo || 'Sin título').slice(0, 200),
       artista: (cancion.artista || '').slice(0, 200),
       album: (cancion.album || '').slice(0, 200),
-      archivo, portada, tipo, bytes: listo.datos.byteLength, duracion: listo.duracion, huella: firma,
+      archivo, portada, tipo, bytes: listo.datos.byteLength, duracion: listo.duracion ?? cancion.duracion ?? null, huella: firma,
     }).select().single();
     if (error) throw traducir(error);
     fila = data;

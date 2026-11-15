@@ -23,10 +23,12 @@ import {
   entrarConCorreo, crearCuenta, recuperarContrasena, cambiarContrasena,
 } from './cuenta.js';
 import * as nube from './nube.js';
+import { abrirRecortador } from './recortar.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {
   importar: $('importar'),
+  recortarArchivo: $('recortar-archivo'),
   aviso: $('aviso'),
   lista: $('lista'),
   vacio: $('vacio'),
@@ -533,6 +535,7 @@ function menuCancion(cancion) {
     subtitulo: [cancion.artista, cancion.duenoUsuario && `subida por @${cancion.duenoUsuario}`].filter(Boolean).join(' · '),
     acciones: [
       { texto: '+ Agregar a playlist o álbum', alElegir: () => elegirLista(cancion) },
+      { icono: 'regla', texto: 'Recortar o dividir', alElegir: () => recortarCancion(cancion) },
       esDeOtro
         ? { icono: 'candado', texto: `Solo @${cancion.duenoUsuario ?? 'su dueño'} puede editarla`, alElegir: () => {} }
         : { icono: 'editar', texto: esMia ? 'Editar título, artista y portada (para todos)' : 'Editar título, artista y portada', alElegir: () => editarCancion(cancion) },
@@ -4097,6 +4100,68 @@ function seccionTop() {
   return seccion;
 }
 
+/* ---------- Recortar o dividir un audio ---------- */
+// La herramienta está en js/recortar.js; aquí se abre y se guardan las partes como
+// canciones nuevas (en Mis descargas; con cuenta, se suben solas).
+
+el.recortarArchivo.addEventListener('change', async () => {
+  const archivo = el.recortarArchivo.files[0];
+  el.recortarArchivo.value = '';
+  if (!archivo) return;
+  mostrarAviso(`Abriendo ${archivo.name}…`);
+  let meta = { titulo: archivo.name.replace(/\.[^.]+$/, ''), artista: '', album: '', portada: null };
+  try {
+    meta = leerMetadatos(await archivo.arrayBuffer(), archivo.name);
+    if (!meta.portada && esVideo(archivo)) meta.portada = await portadaDeVideo(archivo);
+  } catch { /* sin etiquetas: el nombre del archivo */ }
+  el.aviso.hidden = true;
+  abrirRecortador({
+    blob: archivo,
+    titulo: meta.titulo,
+    avisar: mostrarAviso,
+    alGuardar: (partes) => guardarPartes(partes, meta),
+  });
+});
+
+async function recortarCancion(cancion) {
+  mostrarAviso(`Abriendo "${cancion.titulo}"…`);
+  let audio;
+  try {
+    audio = await audioParaSubir(cancion);
+  } catch (error) {
+    return mostrarAviso(`No se pudo abrir: ${error.message}`, 4000);
+  }
+  el.aviso.hidden = true;
+  abrirRecortador({
+    blob: audio.type ? audio : new Blob([audio], { type: cancion.tipo }),
+    titulo: cancion.titulo,
+    avisar: mostrarAviso,
+    alGuardar: (partes) => guardarPartes(partes, cancion),
+  });
+}
+
+/** Cada parte se vuelve una canción nueva (con el artista, álbum y portada del original). */
+async function guardarPartes(partes, base) {
+  for (const [i, parte] of partes.entries()) {
+    await guardarCancion({
+      id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+      titulo: parte.titulo,
+      artista: base.artista ?? '',
+      album: base.album ?? '',
+      portada: base.portada ?? null,
+      tipo: parte.tipo,
+      nombreArchivo: `${parte.titulo}.webm`,
+      duracion: parte.duracion,
+      agregada: Date.now() + i,
+    }, parte.datos);
+  }
+  await recargarLista();
+  const n = partes.length;
+  mostrarAviso(nube.conectado()
+    ? `Listo: ${n} ${n === 1 ? 'audio nuevo' : 'audios nuevos'} en Mis descargas. Se suben a tu cuenta solos.`
+    : `Listo: ${n} ${n === 1 ? 'audio nuevo' : 'audios nuevos'} en Mis descargas.`, 5000);
+}
+
 /* ---------- Crear ---------- */
 
 function abrirCrear() {
@@ -4105,6 +4170,7 @@ function abrirCrear() {
     subtitulo: nube.conectado() ? 'Lo que subes lo encuentran tus amigos en Buscar.' : undefined,
     acciones: [
       { icono: 'subir', texto: 'Subir audios (MP3, M4A o MP4)', alElegir: () => { if (!pedirCuenta('subir audios')) el.importar.click(); } },
+      { icono: 'regla', texto: 'Recortar o dividir un audio', alElegir: () => { if (!pedirCuenta('subir audios')) el.recortarArchivo.click(); } },
       { icono: 'playlist', texto: 'Nueva playlist', alElegir: () => crearLista(null, 'playlist') },
       { icono: 'album', texto: 'Nuevo álbum', alElegir: () => crearLista(null, 'album') },
     ],
