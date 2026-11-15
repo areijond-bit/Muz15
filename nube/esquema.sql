@@ -1,4 +1,4 @@
--- esquema.sql — La base de datos de Muz15 en Supabase.
+-- esquema.sql — La base de datos de Muzzy en Supabase.
 -- Se pega completo en Supabase → SQL Editor → New query → Run. Se puede volver a
 -- correr sin romper nada (solo crea lo que falte).
 --
@@ -117,6 +117,9 @@ drop policy if exists "siguiendo: todos lo ven" on public.siguiendo;
 create policy "siguiendo: todos lo ven" on public.siguiendo for select to authenticated using (true);
 drop policy if exists "siguiendo: sigues tú" on public.siguiendo;
 create policy "siguiendo: sigues tú" on public.siguiendo for insert to authenticated with check (seguidor = auth.uid());
+-- (seguir dos veces a la misma persona no falla: la app usa upsert)
+drop policy if exists "siguiendo: lo tuyo lo cambias tú" on public.siguiendo;
+create policy "siguiendo: lo tuyo lo cambias tú" on public.siguiendo for update to authenticated using (seguidor = auth.uid()) with check (seguidor = auth.uid());
 drop policy if exists "siguiendo: dejas de seguir tú" on public.siguiendo;
 create policy "siguiendo: dejas de seguir tú" on public.siguiendo for delete to authenticated using (seguidor = auth.uid());
 
@@ -152,7 +155,7 @@ create policy "comentarios: comentas a tu nombre" on public.comentarios for inse
 -- Borra el que lo escribió o el dueño del audio.
 drop policy if exists "comentarios: borra el autor o el dueño" on public.comentarios;
 create policy "comentarios: borra el autor o el dueño" on public.comentarios for delete to authenticated
-  using (usuario = auth.uid() or exists (select 1 from public.audios a where a.id = audio and a.dueno = auth.uid()));
+  using (usuario = auth.uid() or exists (select 1 from public.audios a where a.id = comentarios.audio and a.dueno = auth.uid()));
 
 -- ---------- "N veces guardada" ----------
 -- Cuántas personas (sin contar al dueño) tienen cada audio en su biblioteca.
