@@ -22,7 +22,7 @@ const db = () => supabase();
 
 // Audios y perfiles se unen de varias formas (dueño, guardados, likes, comentarios):
 // hay que decirle a Supabase cuál usar, si no responde "more than one relationship".
-const CON_DUENO = '*, perfil:perfiles!audios_dueno_fkey(id, usuario, nombre, foto)';
+const CON_DUENO = '*, perfil:perfiles!audios_dueno_fkey(id, usuario, nombre, foto), conteo:reproducciones(veces)';
 
 let yo = null;          // id de tu cuenta
 let miPerfil = null;
@@ -205,11 +205,15 @@ const EXTENSIONES = { 'audio/webm': 'webm', 'audio/mpeg': 'mp3', 'audio/mp4': 'm
  * Sube una canción de este dispositivo. Si ya la subió alguien (mismo archivo),
  * no se sube otra vez: se agrega la de esa persona a tu biblioteca.
  */
+// Menos que esto no es una canción (un archivo vacío o dañado): no se sube.
+const MINIMO_BYTES = 20 * 1024;
+
 async function subirCancion(cancion) {
   const original = await (await ganchos.audioDe(cancion)).arrayBuffer();
+  if (original.byteLength < MINIMO_BYTES) throw new Error(`El audio de "${cancion.titulo}" está vacío`);
   const firma = await huella(original);
 
-  const { data: iguales } = await db().from('audios').select('*').eq('huella', firma).limit(1);
+  const { data: iguales } = await db().from('audios').select('*').eq('huella', firma).gte('bytes', MINIMO_BYTES).limit(1);
   let fila = iguales?.[0];
   if (!fila) {
     const listo = await comprimir(original, cancion.tipo);
@@ -283,6 +287,7 @@ export function sincronizar() {
   if (!conectado()) return Promise.resolve();
   if (enCurso) { otraVuelta = true; return enCurso; }
   enCurso = (async () => {
+    await ganchos.antesDeSincronizar?.();
     do {
       otraVuelta = false;
       await unaVuelta();
@@ -305,7 +310,8 @@ async function unaVuelta() {
   ]);
   if (e1 || e2) throw traducir(e1 ?? e2);
 
-  const remotos = new Map(guardados.filter((g) => g.audio).map((g) => [g.audio.id, g]));
+  const remotos = new Map(guardados.filter((g) => g.audio && g.audio.bytes >= MINIMO_BYTES).map((g) => [g.audio.id, g]));
+  const rotos = new Set(guardados.filter((g) => g.audio && g.audio.bytes < MINIMO_BYTES).map((g) => g.audio.id));
   let locales = await listarCanciones();
   const porNube = new Map(locales.filter((c) => c.idNube).map((c) => [c.idNube, c]));
   const idLocalDe = (idNube) => porNube.get(idNube)?.id ?? idNube;
@@ -314,12 +320,20 @@ async function unaVuelta() {
 
   // 1. Lo que ya tienes en los dos lados: datos del dueño, tu orden y tus vínculos.
   const porSubir = [];
+  const enNubeAqui = locales.filter((c) => c.enNube).length;
+  const desaparecidas = locales.filter((c) => c.idNube && c.enNube && !remotos.has(c.idNube) && !rotos.has(c.idNube)).length;
+  const borradoSeguro = desaparecidas <= 3 || desaparecidas <= enNubeAqui * 0.3;
+  if (!borradoSeguro) console.warn(`Nube: ${desaparecidas} canciones ya no están en tu cuenta; no se borran aquí por seguridad.`);
   for (const c of locales) {
     if (!c.idNube) { porSubir.push(c); continue; }
+    if (rotos.has(c.idNube)) continue; // ligada a un audio vacío: la arregla repararTitulos (app.js)
     const g = remotos.get(c.idNube);
     if (!g) {
-      if (c.enNube) { await ganchos.borrarLocal(c); cambioAqui = true; } // la quitaste en otro dispositivo
-      else await db().from('guardados').upsert({ usuario: yo, audio: c.idNube, orden: c.orden ?? null });
+      if (c.enNube) {
+        if (borradoSeguro) { await ganchos.borrarLocal(c); cambioAqui = true; } // la quitaste en otro dispositivo
+      } else {
+        await db().from('guardados').upsert({ usuario: yo, audio: c.idNube, orden: c.orden ?? null });
+      }
       continue;
     }
     cambioAqui = (await igualarCancion(c, g, { ultimaVuelta, idLocalDe, idNubeDe })) || cambioAqui;
@@ -609,6 +623,7 @@ const POR_PAGINA = 50;
 /** Audios de todos, del más nuevo al más viejo. Con búsqueda y/o de un solo dueño. */
 export async function explorar({ busqueda = '', dueno = null, pagina = 0 } = {}) {
   let consulta = db().from('audios').select(CON_DUENO)
+    .gte('bytes', MINIMO_BYTES)
     .order('creado', { ascending: false })
     .range(pagina * POR_PAGINA, pagina * POR_PAGINA + POR_PAGINA - 1);
   if (dueno) consulta = consulta.eq('dueno', dueno);
@@ -643,7 +658,7 @@ export async function red() {
 
 /** Cuántos audios ha subido alguien. */
 export async function cuantasSubidas(dueno) {
-  const { count, error } = await db().from('audios').select('id', { count: 'exact', head: true }).eq('dueno', dueno);
+  const { count, error } = await db().from('audios').select('id', { count: 'exact', head: true }).eq('dueno', dueno).gte('bytes', MINIMO_BYTES);
   if (error) throw traducir(error);
   return count ?? 0;
 }
@@ -695,6 +710,13 @@ export async function comentar(audio, texto) {
 export async function borrarComentario(id) {
   const { error } = await db().from('comentarios').delete().eq('id', id);
   if (error) throw traducir(error);
+}
+
+/** Suma una reproducción (alguien la escuchó al menos 30 s). */
+export async function contarReproduccion(audio) {
+  if (!conectado() || !audio) return;
+  const { error } = await db().rpc('sumar_reproduccion', { p_audio: audio });
+  if (error) console.warn('Nube (reproducción):', error.message);
 }
 
 /** Un audio con su dueño (para la pantalla del reproductor). */

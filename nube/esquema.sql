@@ -11,6 +11,7 @@
 --   siguiendo   quién sigue a quién (seguidores / seguidos, como en Instagram)
 --   reacciones  me gusta / no me gusta de cada audio (como en YouTube)
 --   comentarios lo que escriben en cada audio
+--   reproducciones cuántas veces se ha escuchado cada audio
 --
 -- Seguridad (RLS): cualquiera con cuenta puede VER perfiles y audios; solo el dueño
 -- puede cambiar o borrar lo suyo. Tu biblioteca y lo que escuchas solo los ves tú.
@@ -157,6 +158,25 @@ drop policy if exists "comentarios: borra el autor o el dueño" on public.coment
 create policy "comentarios: borra el autor o el dueño" on public.comentarios for delete to authenticated
   using (usuario = auth.uid() or exists (select 1 from public.audios a where a.id = comentarios.audio and a.dueno = auth.uid()));
 
+-- ---------- Reproducciones ----------
+-- Se cuenta una cuando alguien escucha 30 s (o la mitad, si es más corta). Solo se
+-- puede sumar con la función (nadie escribe el número a mano).
+create table if not exists public.reproducciones (
+  audio  uuid primary key references public.audios (id) on delete cascade,
+  veces  bigint not null default 0
+);
+alter table public.reproducciones enable row level security;
+drop policy if exists "reproducciones: todos las ven" on public.reproducciones;
+create policy "reproducciones: todos las ven" on public.reproducciones for select to authenticated using (true);
+create or replace function public.sumar_reproduccion(p_audio uuid)
+returns void language sql security definer set search_path = public as $$
+  insert into public.reproducciones (audio, veces) values (p_audio, 1)
+  on conflict (audio) do update set veces = public.reproducciones.veces + 1
+$$;
+revoke all on function public.sumar_reproduccion(uuid) from public;
+grant execute on function public.sumar_reproduccion(uuid) to authenticated;
+revoke execute on function public.sumar_reproduccion(uuid) from anon;  -- sin cuenta, no suma
+
 -- ---------- "N veces guardada" ----------
 -- Cuántas personas (sin contar al dueño) tienen cada audio en su biblioteca.
 -- La biblioteca de cada quien es privada; esto solo da el número.
@@ -170,6 +190,7 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke all on function public.veces_guardado(uuid[]) from public;
 grant execute on function public.veces_guardado(uuid[]) to authenticated;
+revoke execute on function public.veces_guardado(uuid[]) from anon;
 
 -- ---------- Lo que estás escuchando ----------
 create table if not exists public.escuchando (

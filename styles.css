@@ -1316,3 +1316,6 @@ body.con-pantalla { overflow: hidden; }
 }
 @keyframes girar { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .cargando::before { animation-duration: 2s; } }
+
+.pantalla__subio { margin: 4px 0 0; color: rgba(255, 255, 255, 0.6); font-size: var(--texto-s); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pantalla__subio:empty { display: none; }

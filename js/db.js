@@ -151,7 +151,8 @@ export async function guardarOrden(ids) {
 export async function obtenerAudio(cancion) {
   const db = await abrirDB();
   const buffer = await comoPromesa(db.transaction(AUDIOS).objectStore(AUDIOS).get(cancion.id));
-  if (!buffer) throw new Error(`No se encontró el audio de "${cancion.titulo}"`);
+  // Vacío = ya vive como archivo del teléfono (APK): quien llama debe leer el archivo.
+  if (!buffer?.byteLength) throw new Error(`No se encontró el audio de "${cancion.titulo}"`);
   return new Blob([buffer], { type: cancion.tipo });
 }
 

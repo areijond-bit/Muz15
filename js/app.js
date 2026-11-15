@@ -111,6 +111,7 @@ const el = {
   pantallaPortada: $('pantalla-portada'),
   pantallaTitulo: $('pantalla-titulo'),
   pantallaArtista: $('pantalla-artista'),
+  pantallaSubio: $('pantalla-subio'),
   pantallaGuardar: $('pantalla-guardar'),
   pantallaProgreso: $('pantalla-progreso'),
   pantallaActual: $('pantalla-actual'),
@@ -1939,8 +1940,18 @@ el.anterior.addEventListener('click', () => reproductor.anterior());
 
 // Barra de progreso: se mueve sola y también sirve para saltar a otra parte.
 let arrastrando = false;
+let reproduccionContada = null; // id de la última canción que ya sumó su reproducción
+
 function pintarProgreso({ actual, duracion }) {
   segundoActual = actual;
+  const sonandoAhora = reproductor.estado().cancion;
+  const umbral = Math.min(30, (duracion || 60) / 2);
+  if (sonandoAhora && actual >= umbral && reproduccionContada !== sonandoAhora.id) {
+    reproduccionContada = sonandoAhora.id;
+    nube.contarReproduccion(idEnNube(sonandoAhora));
+  } else if (sonandoAhora && actual < 2 && reproduccionContada === sonandoAhora.id && duracion) {
+    reproduccionContada = null; // la volviste a poner desde el inicio: cuenta otra vez
+  }
   guardarUltima();
   pintarProgresoPantalla(actual, duracion);
   // Cada ~30 s mientras suena (nube.js no manda más seguido).
@@ -2989,6 +3000,7 @@ function iniciarCuenta() {
     alCambiarBiblioteca: programarRecarga,
     alEscuchando: pintarEscuchando,
     alCambiarSeguidores,
+    antesDeSincronizar: repararTitulos,
     alCambiarAudioSocial,
     alAudioNuevo: () => { if (vistaActual === 'explorar' && !el.buscarExplorar.value) abrirExplorar(); },
     avisar: mostrarAviso,
@@ -3492,7 +3504,7 @@ async function pintarVistaPerfil() {
     textoVerTodos: 'Ver todos los audios',
     filas: canciones.map((cancion, i) => {
       const n = veces.get(cancion.id) ?? 0;
-      return crearFila({ ...cancion, artista: [cancion.artista, `${n} ${n === 1 ? 'vez guardada' : 'veces guardada'}`].filter(Boolean).join(' · ') },
+      return crearFila({ ...cancion, artista: [cancion.artista, textoReproducciones(cancion.reproducciones), `${n} ${n === 1 ? 'vez guardada' : 'veces guardada'}`].filter(Boolean).join(' · ') },
         cancion.portadaUrl ?? 'icons/portada.png',
         botonMenu(cancion, () => menuAudio(cancion)),
         () => { listaQueSuena = null; reproductor.reproducirLista(canciones, i); });
@@ -3920,6 +3932,76 @@ async function sincronizarAhora() {
   }
 }
 
+/* ---------- Reparar: todas se llamaban igual ---------- */
+// Un error subía las canciones de la APK vacías: todas daban la misma "huella" y
+// quedaban ligadas al mismo audio, con el mismo nombre. Aquí se desligan y se les
+// devuelve su nombre, artista y portada leyendo su propio archivo (o tu computadora).
+// Corre una vez por dispositivo, antes de sincronizar; luego se vuelven a subir bien.
+
+const CLAVE_REPARACION = 'muz15-reparado-huella-vacia';
+let reparando = null;
+
+function repararTitulos() {
+  try { if (localStorage.getItem(CLAVE_REPARACION)) return Promise.resolve(); } catch { /* nada */ }
+  reparando ??= (async () => {
+    const canciones = await listarCanciones();
+    const cuantas = new Map();
+    for (const c of canciones) if (c.idNube) cuantas.set(c.idNube, (cuantas.get(c.idNube) ?? 0) + 1);
+    const afectadas = canciones.filter((c) => c.idNube && cuantas.get(c.idNube) > 1);
+    // La portada que se repite en todas también vino del audio roto: esa se quita.
+    const tamanos = new Map();
+    for (const c of afectadas) {
+      const t = c.portada?.datos?.byteLength ?? 0;
+      if (t) tamanos.set(t, (tamanos.get(t) ?? 0) + 1);
+    }
+    const portadaRepetida = [...tamanos].find(([, n]) => n > 1 && n >= afectadas.length / 2)?.[0];
+    let arregladas = 0;
+    for (const [i, c] of afectadas.entries()) {
+      mostrarAviso(`Recuperando los nombres de tus canciones: ${i + 1} de ${afectadas.length}…`);
+      const datos = await datosOriginales(c).catch(() => ({}));
+      const portadaPrestada = !datos.portada && (c.portada?.datos?.byteLength ?? 0) === portadaRepetida;
+      await actualizarCancion({
+        ...c, ...datos,
+        ...(portadaPrestada ? { portada: null } : {}),
+        idNube: null, enNube: false, dueno: null, duenoUsuario: null, portadaNube: null, portadaBytes: 0,
+      }, { desdeNube: true });
+      arregladas++;
+    }
+    try { localStorage.setItem(CLAVE_REPARACION, '1'); } catch { /* nada */ }
+    if (arregladas) {
+      await recargarLista();
+      mostrarAviso(`Listo: ${arregladas} canciones recuperaron su nombre. Ahora se suben bien.`, 5000);
+    }
+  })().finally(() => { reparando = null; });
+  return reparando;
+}
+
+/** Nombre, artista, álbum y portada de una canción, sacados de su propio archivo. */
+async function datosOriginales(cancion) {
+  // Las que bajaste de tu computadora: sus datos de allá.
+  if (cancion.idServidor && servidor.configuracion()) {
+    try {
+      await asegurarBibliotecaServidor();
+      const deAlla = cancionesServidor.find((s) => s.idServidor === cancion.idServidor);
+      if (deAlla) {
+        const portada = await fetch(servidor.urlPortada(deAlla, 600)).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null);
+        return {
+          titulo: deAlla.titulo, artista: deAlla.artista, album: deAlla.album ?? '',
+          ...(portada?.byteLength ? { portada: { datos: portada, tipo: 'image/jpeg' } } : {}),
+        };
+      }
+    } catch { /* sigue con el archivo */ }
+  }
+  // Las etiquetas del archivo (o su nombre: "Artista - Título.mp3").
+  // Si no se puede leer el archivo, al menos su nombre ("Artista - Título.mp3").
+  const bytes = await audioParaSubir(cancion).then((b) => b.arrayBuffer()).catch(() => new ArrayBuffer(0));
+  const meta = leerMetadatos(bytes, cancion.nombreArchivo ?? `${cancion.titulo}.mp3`);
+  return {
+    titulo: meta.titulo, artista: meta.artista, album: meta.album ?? '',
+    ...(meta.portada ? { portada: meta.portada } : {}),
+  };
+}
+
 /* ---------- "Escuchando en…" (tus otros dispositivos) ---------- */
 
 let escuchandoActual = null;
@@ -4006,7 +4088,12 @@ const comoCancion = (audio) => ({
   dueno: audio.dueno,
   duenoUsuario: audio.perfil?.usuario ?? null,
   perfilDueno: audio.perfil ?? null,
+  reproducciones: audio.conteo?.veces ?? 0,
 });
+
+/** "1 reproducción", "250 reproducciones", "1.2 mil reproducciones" */
+const compacto = new Intl.NumberFormat('es-MX', { notation: 'compact', maximumFractionDigits: 1 });
+const textoReproducciones = (n = 0) => `${compacto.format(n)} ${n === 1 ? 'reproducción' : 'reproducciones'}`;
 
 function pintarExplorar() {
   const canciones = resultadosExplorar.map(comoCancion);
@@ -4022,7 +4109,10 @@ function filaAudio(cancion, canciones, i) {
   const acciones = document.createElement('div');
   acciones.className = 'cancion__acciones';
   acciones.append(botonGuardarAudio(cancion), botonMenu(cancion, () => menuAudio(cancion)));
-  const vista = { ...cancion, artista: [cancion.artista, cancion.duenoUsuario && `@${cancion.duenoUsuario}`].filter(Boolean).join(' · ') };
+  const vista = {
+    ...cancion,
+    artista: [cancion.artista, cancion.duenoUsuario && `@${cancion.duenoUsuario}`, textoReproducciones(cancion.reproducciones)].filter(Boolean).join(' · '),
+  };
   return crearFila(vista, cancion.portadaUrl ?? 'icons/portada.png', acciones,
     () => { listaQueSuena = null; reproductor.reproducirLista(canciones, i); });
 }
@@ -4179,6 +4269,7 @@ function pintarPantalla({ cancion, sonando, aleatorio, urlPortada }, { forzarSoc
   el.pantalla.style.setProperty('--color-portada', getComputedStyle(el.barraReproductor).getPropertyValue('--color-portada') || '#2a2a2a');
   el.pantallaTitulo.textContent = cancion.titulo;
   el.pantallaArtista.textContent = cancion.artista || '';
+  if (idEnNube(cancion) !== pantallaAudio) el.pantallaSubio.textContent = '';
   el.pantallaAlternar.innerHTML = icono(sonando ? 'pausa' : 'play', 34);
   el.pantallaAlternar.setAttribute('aria-label', sonando ? 'Pausar' : 'Reproducir');
   el.pantallaAleatorio.setAttribute('aria-pressed', String(aleatorio));
@@ -4321,6 +4412,7 @@ async function pintarSocial(cancion) {
   if (!fila) return caja.replaceChildren(textoSocial('Este audio ya no está en Muzzy.'));
   const yo = nube.perfil();
   const dueno = fila.perfil;
+  el.pantallaSubio.textContent = [dueno && `Subida por @${dueno.usuario}`, textoReproducciones(fila.conteo?.veces ?? 0)].filter(Boolean).join(' · ');
 
   // Me gusta / No me gusta
   const reaccion = document.createElement('div');
