@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "muz15",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/servidor.mjs"],
+      "port": 5150
+    }
+  ]
+}
