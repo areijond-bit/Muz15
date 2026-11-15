@@ -7,6 +7,7 @@ import android.os.Looper;
 import android.util.Base64;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
+import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -46,7 +47,13 @@ public class ReproductorPlugin extends Plugin {
     private void conServicio(PluginCall llamada, AccionServicio accion) {
         principal.post(() -> {
             if (ServicioMusica.instancia == null) {
-                getContext().startService(new Intent(getContext(), ServicioMusica.class));
+                try {
+                    getContext().startService(new Intent(getContext(), ServicioMusica.class));
+                } catch (Exception error) {
+                    // Android no deja arrancar servicios con la app en segundo plano: no tronar.
+                    llamada.reject("El reproductor no pudo arrancar: " + error.getMessage());
+                    return;
+                }
             }
             esperarServicio(llamada, accion, 0);
         });
@@ -82,6 +89,13 @@ public class ReproductorPlugin extends Plugin {
             @Override
             public void onEvents(Player jugador, Player.Events eventos) {
                 notifyListeners("cambio", estadoDe(jugador));
+            }
+
+            @Override
+            public void onPlayerError(PlaybackException error) {
+                JSObject datos = new JSObject();
+                datos.put("mensaje", error.getMessage());
+                notifyListeners("error", datos);
             }
         });
     }
@@ -145,7 +159,11 @@ public class ReproductorPlugin extends Plugin {
 
     @PluginMethod
     public void reproducir(PluginCall llamada) {
-        conServicio(llamada, (s) -> { s.reproductor.play(); llamada.resolve(estadoDe(s.reproductor)); });
+        conServicio(llamada, (s) -> {
+            if (s.reproductor.getPlaybackState() == Player.STATE_IDLE) s.reproductor.prepare();
+            s.reproductor.play();
+            llamada.resolve(estadoDe(s.reproductor));
+        });
     }
 
     @PluginMethod
@@ -176,6 +194,7 @@ public class ReproductorPlugin extends Plugin {
         int indice = llamada.getInt("indice", 0);
         conServicio(llamada, (s) -> {
             s.reproductor.seekTo(indice, 0);
+            if (s.reproductor.getPlaybackState() == Player.STATE_IDLE) s.reproductor.prepare();
             s.reproductor.play();
             llamada.resolve(estadoDe(s.reproductor));
         });

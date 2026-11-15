@@ -96,7 +96,9 @@ export async function abrirRecortador({ blob, titulo, avisar, alGuardar }) {
     reproductor.pause();
     URL.revokeObjectURL(url);
     caja.remove();
-    document.body.classList.remove('con-pantalla');
+    window.removeEventListener('resize', dibujar);
+    // Si el reproductor grande sigue abierto, la página sigue sin desplazarse.
+    if (document.querySelector('.pantalla')?.hidden !== false) document.body.classList.remove('con-pantalla');
   };
   $('[data-cerrar]').addEventListener('click', cerrar);
 

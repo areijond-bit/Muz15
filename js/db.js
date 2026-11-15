@@ -64,8 +64,9 @@ export function firmaDatos(objeto) {
   return JSON.stringify(datos) + portada;
 }
 
-function avisar(tipo, id, borrada = false) {
-  try { window.dispatchEvent(new CustomEvent('muz15-cambio', { detail: { tipo, id, borrada } })); } catch { /* nada */ }
+/** idNube: al borrar, de qué audio/lista de la nube era (para quitarla también allá). */
+function avisar(tipo, id, borrada = false, idNube = null) {
+  try { window.dispatchEvent(new CustomEvent('muz15-cambio', { detail: { tipo, id, borrada, idNube } })); } catch { /* nada */ }
 }
 
 /** Convierte un pedido de IndexedDB (con callbacks) en una promesa. */
@@ -178,6 +179,8 @@ export async function tieneAudio(id) {
 export async function borrarCancion(id, { desdeNube = false } = {}) {
   const db = await abrirDB();
   const tx = db.transaction([CANCIONES, AUDIOS, LISTAS], 'readwrite');
+  let idNube = null;
+  tx.objectStore(CANCIONES).get(id).onsuccess = (evento) => { idNube = evento.target.result?.idNube ?? null; };
   tx.objectStore(CANCIONES).delete(id);
   tx.objectStore(AUDIOS).delete(id);
   const listas = tx.objectStore(LISTAS);
@@ -191,7 +194,35 @@ export async function borrarCancion(id, { desdeNube = false } = {}) {
     }
   };
   await transaccionTerminada(tx);
-  if (!desdeNube) avisar('cancion', id, true);
+  if (!desdeNube) avisar('cancion', id, true, idNube);
+}
+
+/**
+ * Cambia solo algunos datos de una canción, leyendo la versión de AHORA (no una copia
+ * vieja): para lo que llega de la nube. Si mientras tanto se borró, no la revive.
+ * @returns {Promise<boolean>} false si ya no existe
+ */
+export async function parchearCancion(id, campos) {
+  return parchear(CANCIONES, id, campos);
+}
+
+export async function parchearLista(id, campos) {
+  return parchear(LISTAS, id, campos);
+}
+
+async function parchear(almacenNombre, id, campos) {
+  const db = await abrirDB();
+  const tx = db.transaction(almacenNombre, 'readwrite');
+  const almacen = tx.objectStore(almacenNombre);
+  let existe = false;
+  almacen.get(id).onsuccess = (evento) => {
+    const actual = evento.target.result;
+    if (!actual) return;
+    existe = true;
+    almacen.put({ ...actual, ...campos, id });
+  };
+  await transaccionTerminada(tx);
+  return existe;
 }
 
 /* ---------- Listas (playlists) ---------- */
@@ -225,9 +256,11 @@ export async function guardarLista(lista, { desdeNube = false } = {}) {
 export async function borrarLista(id, { desdeNube = false } = {}) {
   const db = await abrirDB();
   const tx = db.transaction(LISTAS, 'readwrite');
+  let idNube = null;
+  tx.objectStore(LISTAS).get(id).onsuccess = (evento) => { idNube = evento.target.result?.idNube ?? null; };
   tx.objectStore(LISTAS).delete(id);
   await transaccionTerminada(tx);
-  if (!desdeNube) avisar('lista', id, true);
+  if (!desdeNube) avisar('lista', id, true, idNube);
 }
 
 /**

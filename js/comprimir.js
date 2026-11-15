@@ -9,7 +9,9 @@ import { Muxer, ArrayBufferTarget } from './vendor/webm-muxer.mjs';
 
 const TASA = 48000;                 // Opus siempre trabaja a 48 kHz
 const KBPS = 96;
-const MAXIMO_PARA_COMPRIMIR = 60 * 1024 * 1024; // más grande que esto: tal cual (no ahogar la memoria)
+// Más grande que esto: tal cual. Al abrirlo, 1 minuto ocupa ~23 MB de memoria; un MP3 de
+// 20 MB (~20 min) ya ocupa ~460 MB, y más que eso cerraba la página en algunos teléfonos.
+const MAXIMO_PARA_COMPRIMIR = 20 * 1024 * 1024;
 
 /** ¿Este aparato puede comprimir? */
 export async function sePuedeComprimir(canales = 2, tasa = TASA) {

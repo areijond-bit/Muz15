@@ -56,6 +56,7 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
 
   // Para descartar cargas viejas si cambias de canción muy rápido.
   let turno = 0;
+  let precargando = -1; // la que se está precargando (para no pedirla dos veces)
 
   const portadaActual = () => cargada.get(activa).portada ?? PORTADA_POR_DEFECTO;
   const estado = () => ({
@@ -135,15 +136,22 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
     cargada.set(bandeja, { indice: -1, id: null, audio: null, portada: null });
   }
 
-  async function cargar(bandeja, i) {
+  /** @param vigente  después de esperar el audio: ¿todavía toca cargarlo en esta bandeja? */
+  async function cargar(bandeja, i, vigente = () => true) {
     const cancion = lista[i];
     const fuente = await obtenerFuente(cancion);
+    if (!vigente()) {
+      // Mientras se preparaba cambiaste de canción: no se toca la bandeja (podría ser la que suena).
+      for (const url of [fuente.audio, fuente.portada]) if (url?.startsWith('blob:')) URL.revokeObjectURL(url);
+      return false;
+    }
     vaciar(bandeja);
     cargada.set(bandeja, { indice: i, id: cancion.id, ...fuente });
     bandeja.volume = 1;
     bandeja.preload = 'auto';
     bandeja.src = fuente.audio;
     bandeja.load();
+    return true;
   }
 
   /** Deja la siguiente canción cargada en la bandeja libre. */
@@ -151,15 +159,17 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
     if (fundiendo) return; // la libre todavía se está apagando
     const i = proximoIndice();
     const enLibre = cargada.get(libre);
-    if (i < 0 || (enLibre.indice === i && enLibre.id === lista[i]?.id)) return;
+    if (i < 0 || precargando === i || (enLibre.indice === i && enLibre.id === lista[i]?.id)) return;
     const miTurno = turno;
+    const bandeja = libre;
+    precargando = i;
     try {
-      await cargar(libre, i);
+      await cargar(bandeja, i, () => miTurno === turno && bandeja !== activa && precargando === i);
     } catch (error) {
       console.warn('No se pudo precargar la siguiente:', error.message);
-      return;
+    } finally {
+      if (precargando === i) precargando = -1;
     }
-    if (miTurno !== turno) vaciar(libre); // mientras tanto cambiaste de canción
   }
 
   /* ---------- Cambiar de canción ---------- */
@@ -187,7 +197,7 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
       [activa, libre] = [libre, activa];
     } else {
       try {
-        await cargar(libre, nuevoIndice);
+        if (!await cargar(libre, nuevoIndice, () => miTurno === turno)) return; // otra canción se pidió mientras cargaba
       } catch (error) {
         console.error(error);
         alFallar?.(error.message);
@@ -235,7 +245,9 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
       // grave: la canción queda cargada y el siguiente toque en ▶ la arranca.
       console.warn('No se pudo reproducir automáticamente:', error.message);
     }
-    if (!conFundidoAhora) vaciar(anterior);
+    // Tocaste otra mientras arrancaba: esa ya se encargó (y "anterior" puede ser la que suena ahora).
+    if (miTurno !== turno) return;
+    if (!conFundidoAhora && anterior !== activa) vaciar(anterior);
     if (!fundiendo) prepararSiguiente();
   }
 
@@ -465,6 +477,8 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
      */
     refrescar(canciones) {
       const actual = lista[indice];
+      const clave = () => lista.map((c) => `${c.id}>${c.siguienteFija ?? ''}`).join();
+      const antes = clave();
       const mismas = canciones.length === lista.length && lista.every((c) => canciones.some((n) => n.id === c.id));
       if (mismas) {
         // Es la misma lista que suena (quizá reacomodada): tomamos su nuevo orden.
@@ -476,7 +490,8 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
         const nuevas = new Map(canciones.map((c) => [c.id, c]));
         lista = lista.map((c) => nuevas.get(c.id) ?? c);
       }
-      armarOrden();
+      // Solo si cambió el orden o los vínculos (si no, el aleatorio repetiría o saltaría canciones).
+      if (clave() !== antes || orden.length !== lista.length) armarOrden();
       if (lista[indice]) actualizarMediaSession(lista[indice]);
       avisar();
       prepararSiguiente();

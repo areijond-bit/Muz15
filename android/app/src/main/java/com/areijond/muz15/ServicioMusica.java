@@ -8,6 +8,7 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
+import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.Util;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -67,6 +68,29 @@ public class ServicioMusica extends MediaSessionService {
             .build();
         reproductor.setAudioSessionId(sesionAudio);
         reproductor.setRepeatMode(Player.REPEAT_MODE_ALL); // al terminar la lista, vuelve a empezar
+        // Si una canción no se puede abrir (archivo que ya no está, sin internet…), pasa a
+        // la siguiente en vez de quedarse callado. Si fallan todas, se detiene.
+        reproductor.addListener(new Player.Listener() {
+            private int fallosSeguidos = 0;
+
+            @Override
+            public void onPlayerError(PlaybackException error) {
+                Log.w(TAG, "No se pudo reproducir: " + error.getMessage());
+                fallosSeguidos++;
+                if (fallosSeguidos < reproductor.getMediaItemCount() && reproductor.hasNextMediaItem()) {
+                    reproductor.seekToNextMediaItem();
+                    reproductor.prepare();
+                } else {
+                    fallosSeguidos = 0;
+                    reproductor.setPlayWhenReady(false);
+                }
+            }
+
+            @Override
+            public void onIsPlayingChanged(boolean sonando) {
+                if (sonando) fallosSeguidos = 0;
+            }
+        });
 
         // Tocar la notificación abre Muz15.
         Intent abrirApp = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);

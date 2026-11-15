@@ -28,6 +28,7 @@ export function crearReproductorNativo({ fuente, alCambiar, alProgreso, alFallar
   let fundido = 0;   // (el reproductor nativo cambia sin pausa; el fundido no aplica)
   let urlPortada = null;
   let ultimoSegundo = 0;
+  let turno = 0;     // si tocas otra canción mientras se prepara la cola, gana la última
 
   const estado = () => ({
     cancion: lista[indice] ?? null,
@@ -79,28 +80,35 @@ export function crearReproductorNativo({ fuente, alCambiar, alProgreso, alFallar
 
   async function cargar(desde, { reproducir = true, segundo = 0 } = {}) {
     if (!lista.length) return;
-    orden = calcularOrden(desde);
+    const este = ++turno;
+    const miLista = lista;
+    const miOrden = calcularOrden(desde);
     try {
-      const canciones = await Promise.all(orden.map(async (i) => {
-        const c = lista[i];
-        const { url, portada } = await fuente(c);
-        return { id: c.id, url, titulo: c.titulo, artista: c.artista, album: c.album || 'Muzzy', portada };
-      }));
+      const fuentes = await Promise.all(miOrden.map((i) => fuente(miLista[i], { ahora: i === desde })));
+      if (este !== turno) return; // ya pediste otra
+      const canciones = miOrden.map((i, k) => {
+        const c = miLista[i];
+        return { id: c.id, url: fuentes[k].url, titulo: c.titulo, artista: c.artista, album: c.album || 'Muzzy', portada: fuentes[k].portada };
+      });
+      orden = miOrden;
       indice = desde;
-      urlPortada = (await fuente(lista[desde])).portadaPantalla;
+      urlPortada = fuentes[miOrden.indexOf(desde)].portadaPantalla;
       sonando = reproducir;
       avisar();
-      await Reproductor.cargarCola({ canciones, indice: orden.indexOf(desde), segundo, reproducir });
+      await Reproductor.cargarCola({ canciones, indice: miOrden.indexOf(desde), segundo, reproducir });
       guardarCola();
     } catch (error) {
       console.error(error);
-      alFallar?.(error.message);
+      if (este === turno) alFallar?.(error.message);
     }
   }
 
   function guardarCola() {
     try {
-      localStorage.setItem(CLAVE_COLA, JSON.stringify(orden.map((i) => lista[i].id)));
+      localStorage.setItem(CLAVE_COLA, JSON.stringify(orden.map((i) => {
+        const { id, titulo, artista, album, origen, archivo, idNube, idServidor, portadaUrl, dueno, duenoUsuario } = lista[i];
+        return { id, titulo, artista, album, origen, archivo, idNube, idServidor, portadaUrl, dueno, duenoUsuario };
+      })));
     } catch { /* nada */ }
   }
 
@@ -128,6 +136,12 @@ export function crearReproductorNativo({ fuente, alCambiar, alProgreso, alFallar
   }
 
   Reproductor.addListener('cambio', alCambiarNativo);
+  // (APK 1.13+) Una canción no se pudo abrir: Android ya pasó a la siguiente.
+  Reproductor.addListener('error', (e) => {
+    const cual = lista[indice]?.titulo;
+    alFallar?.(cual ? `No se pudo reproducir "${cual}". Pasando a la siguiente…` : 'No se pudo reproducir esa canción.');
+    console.warn('Reproductor nativo:', e?.mensaje);
+  });
 
   // La barra de progreso: preguntamos al servicio mientras la app está a la vista.
   setInterval(async () => {
@@ -158,10 +172,18 @@ export function crearReproductorNativo({ fuente, alCambiar, alProgreso, alFallar
     async adoptarColaExistente(buscarCancion) {
       const e = await Reproductor.estado().catch(() => null);
       if (!e?.total || e.id == null) return false;
-      let ids = [];
-      try { ids = JSON.parse(localStorage.getItem(CLAVE_COLA)) ?? []; } catch { ids = []; }
-      const canciones = ids.map(buscarCancion).filter(Boolean);
-      if (!canciones.length) return false;
+      let guardadas = [];
+      try { guardadas = JSON.parse(localStorage.getItem(CLAVE_COLA)) ?? []; } catch { guardadas = []; }
+      // La de tu biblioteca si está; si no (de la nube o de tu PC), lo que se guardó de ella.
+      // Así la cola de la app coincide con la de Android y la música no se corta.
+      const canciones = guardadas.map((g) => {
+        const id = typeof g === 'string' ? g : g?.id;
+        return buscarCancion(id) ?? (typeof g === 'object' && g ? g : { id, titulo: 'Canción', artista: '' });
+      });
+      if (!canciones.length || canciones.length !== e.total) {
+        // No se sabe qué cola es: se muestra al menos la que suena.
+        canciones.splice(0, canciones.length, buscarCancion(e.id) ?? { id: e.id, titulo: e.titulo ?? 'Canción', artista: e.artista ?? '' });
+      }
       lista = canciones;
       orden = lista.map((_, i) => i);
       indice = Math.max(0, lista.findIndex((c) => c.id === e.id));
@@ -176,9 +198,12 @@ export function crearReproductorNativo({ fuente, alCambiar, alProgreso, alFallar
       const nuevas = new Map(canciones.map((c) => [c.id, c]));
       const mismas = canciones.length === lista.length && lista.every((c) => nuevas.has(c.id));
       const actual = lista[indice];
-      const antes = orden.map((i) => lista[i]?.id).join();
+      const idsEnOrden = orden.map((i) => lista[i]?.id);
+      const antes = idsEnOrden.join();
       lista = mismas ? canciones : lista.map((c) => nuevas.get(c.id) ?? c);
       indice = actual ? lista.findIndex((c) => c.id === actual.id) : -1;
+      const lugarDe = new Map(lista.map((c, i) => [c.id, i]));
+      orden = idsEnOrden.map((id) => lugarDe.get(id)).filter((i) => i !== undefined); // la cola de Android no cambió
       // Si cambió el orden (arrastraste, vínculos nuevos…), se le avisa al servicio.
       if (orden.length && calcularOrden(indice).map((i) => lista[i].id).join() !== antes && !aleatorio) reacomodar();
       avisar();

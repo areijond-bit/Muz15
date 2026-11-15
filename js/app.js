@@ -3,7 +3,7 @@
 import {
   guardarCancion, listarCanciones, obtenerAudio, borrarCancion, pedirAlmacenamientoPersistente, espacioUsado,
   listarListas, guardarLista as guardarListaEnTelefono, borrarLista as borrarListaEnTelefono,
-  actualizarCancion, guardarOrden, liberarAudio, tieneAudio,
+  actualizarCancion, guardarOrden, liberarAudio, tieneAudio, parchearCancion,
 } from './db.js';
 import { activarArrastre } from './arrastrar.js';
 import { leerMetadatos } from './metadatos.js';
@@ -170,7 +170,7 @@ const PORTADA_POR_DEFECTO = new URL('icons/portada.png', location.href).href;
  * Para el reproductor nativo: de dónde sacar el audio y la portada.
  * Del teléfono → archivo; de Mi PC sin descargar → tu servidor.
  */
-async function fuenteNativa(cancion) {
+async function fuenteNativa(cancion, { ahora = false } = {}) {
   if (cancion.origen === 'nube') {
     const local = localDe(cancion);
     if (!local) {
@@ -187,7 +187,10 @@ async function fuenteNativa(cancion) {
     }
     cancion = local;
   }
-  if (!cancion.enArchivo) await asegurarArchivos(); // por si aún no se trasladó
+  if (!cancion.enArchivo) {
+    if (ahora) await trasladar([cancion], ayudasTraslado); // la que va a sonar: ya, sin esperar a las demás
+    else asegurarArchivos(); // las demás se pasan a archivos poco a poco
+  }
   return {
     url: await urlDe(rutaAudio(cancion)),
     portada: cancion.portada ? await urlDe(rutaPortada(cancion)) : PORTADA_POR_DEFECTO,
@@ -201,6 +204,12 @@ async function fuenteNativa(cancion) {
 
 let trasladando = null;
 const CLAVE_COPIAS_LIBERADAS = 'muz15-copias-liberadas';
+const ayudasTraslado = {
+  obtenerAudio,
+  // Solo marca "ya es archivo" sobre la versión de ahora (si la editaste mientras tanto, no se pierde).
+  actualizarCancion: (cancion) => parchearCancion(cancion.id, { enArchivo: true }),
+  liberarAudio, // ya a salvo como archivo: no ocupa doble espacio
+};
 function asegurarArchivos() {
   if (!hayReproductorNativo) return Promise.resolve();
   if (!trasladando) {
@@ -209,9 +218,7 @@ function asegurarArchivos() {
       if (pendientes.length) {
         const muchas = pendientes.length > 3;
         await trasladar(pendientes, {
-          obtenerAudio,
-          actualizarCancion,
-          liberarAudio, // ya a salvo como archivo: no ocupa doble espacio
+          ...ayudasTraslado,
           alAvanzar: (i, total) => {
             if (muchas) mostrarAviso(`Preparando tus canciones para el reproductor nuevo: ${i} de ${total}…`);
           },
@@ -380,6 +387,7 @@ async function recargarLista() {
   pintarListas();
   pintarEspacio();
   if (cancionesServidor.length) pintarListaServidor(); // actualiza las marcas de descargadas
+  if (vistaActual === 'inicio') el.inicioContenido.querySelector('[data-descargas]')?.replaceWith(seccionDescargasInicio());
   programarRespaldo();
   // APK nueva: las canciones recién importadas o bajadas pasan a archivos del teléfono.
   if (hayReproductorNativo && cancionesLocales.some((c) => !c.enArchivo)) asegurarArchivos();
@@ -1902,6 +1910,8 @@ async function descargarDelServidor(cancion, { silencioso = false } = {}) {
 
 /* ---------- Reproductor ---------- */
 
+let segundoActual = 0;
+
 function pintarReproductor({ cancion, sonando, aleatorio, urlPortada }) {
   if (cancion) guardarUltima(!sonando); // cambió de canción o se pausó: guardar ya
   nube.anunciar({ cancion, sonando, posicion: segundoActual }).catch(() => {});
@@ -1948,16 +1958,23 @@ el.anterior.addEventListener('click', () => reproductor.anterior());
 // Barra de progreso: se mueve sola y también sirve para saltar a otra parte.
 let arrastrando = false;
 let reproduccionContada = null; // id de la última canción que ya sumó su reproducción
+// Segundos que de verdad sonaron (adelantar o retomar en el segundo 40 no cuenta como escuchar).
+const escucha = { id: null, segundos: 0, ultimo: 0 };
 
 function pintarProgreso({ actual, duracion }) {
+  const { cancion: sonandoAhora, sonando: suena } = reproductor.estado();
+  if (sonandoAhora?.id !== escucha.id) Object.assign(escucha, { id: sonandoAhora?.id ?? null, segundos: 0, ultimo: actual });
+  const avance = actual - escucha.ultimo;
+  if (suena && avance > 0 && avance < 3) escucha.segundos += avance;
+  escucha.ultimo = actual;
   segundoActual = actual;
-  const sonandoAhora = reproductor.estado().cancion;
   const umbral = Math.min(30, (duracion || 60) / 2);
-  if (sonandoAhora && actual >= umbral && reproduccionContada !== sonandoAhora.id) {
+  if (sonandoAhora && escucha.segundos >= umbral && reproduccionContada !== sonandoAhora.id) {
     reproduccionContada = sonandoAhora.id;
     nube.contarReproduccion(idEnNube(sonandoAhora));
   } else if (sonandoAhora && actual < 2 && reproduccionContada === sonandoAhora.id && duracion) {
     reproduccionContada = null; // la volviste a poner desde el inicio: cuenta otra vez
+    escucha.segundos = 0;
   }
   guardarUltima();
   pintarProgresoPantalla(actual, duracion);
@@ -1976,7 +1993,6 @@ function pintarProgreso({ actual, duracion }) {
 // segundo. Al abrir Muz15 queda lista abajo, pausada: le das ▶ y sigue.
 
 const CLAVE_ULTIMA = 'muz15-ultima';
-let segundoActual = 0;
 let ultimoGuardado = 0;
 
 let retomando = false; // mientras se carga la última canción, no sobrescribir su segundo con 0
@@ -2186,6 +2202,11 @@ const revisarActualizacionLista = revisarActualizacion(); // también deja anota
 AppNativa?.addListener('backButton', () => {
   const hojaAbierta = [...document.querySelectorAll('.hoja-fondo')].at(-1);
   if (hojaAbierta) return hojaAbierta.click(); // tocar el fondo = cerrar la hoja
+  const recortador = document.querySelector('.recortador');
+  if (recortador) {
+    if (!recortador.querySelector('[data-guardar]')?.disabled) recortador.querySelector('[data-cerrar]')?.click();
+    return;
+  }
   if (pantallaAbierta) return cerrarPantalla();
   if (listaAbierta && vistaActual === 'biblioteca') {
     listaAbierta = null;
@@ -2278,6 +2299,8 @@ async function buscarActualizaciones() {
   if (nuevo || (enInternet && aqui && enInternet !== aqui)) {
     mostrarAviso(`Bajando la versión nueva (${enInternet ?? 'nueva'})…`);
     const estado = nuevo ? await esperarActivado(nuevo) : 'atorada';
+    // Internet lento: sigue bajando sola. (Borrar la copia ahora dejaría la app sin abrir sin internet.)
+    if (estado === 'tiempo') return mostrarAviso('Sigue bajando la versión nueva (internet lento). Vuelve a buscar en un momento.', 5000);
     // Si se bajó bien, se recarga; si se atoró o falló, se baja todo de nuevo.
     return aplicarActualizacion({ aFuerza: estado !== 'activated' });
   }
@@ -3356,6 +3379,7 @@ function pedirPerfil() {
   // Revisa que el usuario esté libre mientras escribes.
   let revision = 0;
   let disponible = true;
+  let revisando = null; // la revisión pendiente
   const ponerNota = (texto, tipo = '') => {
     nota.textContent = texto;
     nota.className = `formulario-perfil__nota${tipo ? ` formulario-perfil__nota--${tipo}` : ''}`;
@@ -3368,14 +3392,18 @@ function pedirPerfil() {
     if (error) return ponerNota(error, 'error');
     const esta = ++revision;
     ponerNota('Revisando…');
+    revisando = usuario;
     setTimeout(async () => {
       if (esta !== revision) return;
       try {
-        disponible = await nube.usuarioLibre(usuario);
-        if (esta === revision) ponerNota(disponible ? `@${usuario} está libre` : `@${usuario} ya lo tiene alguien más`, disponible ? 'bien' : 'error');
+        const libre = await nube.usuarioLibre(usuario);
+        if (esta !== revision) return;
+        disponible = libre;
+        ponerNota(disponible ? `@${usuario} está libre` : `@${usuario} ya lo tiene alguien más`, disponible ? 'bien' : 'error');
       } catch {
-        disponible = true; // sin internet: lo dirá al guardar
-        ponerNota('');
+        if (esta === revision) { disponible = true; ponerNota(''); } // sin internet: lo dirá al guardar
+      } finally {
+        if (esta === revision) revisando = null;
       }
     }, 400);
   });
@@ -3385,6 +3413,11 @@ function pedirPerfil() {
     evento.preventDefault();
     const { usuario, error } = nube.limpiarUsuario(campoUsuario.value);
     if (error) return ponerNota(error, 'error');
+    if (revisando) {
+      revision++; // la revisión pendiente ya no importa: se revisa aquí
+      revisando = null;
+      disponible = await nube.usuarioLibre(usuario).catch(() => true);
+    }
     if (!disponible) return ponerNota(`@${usuario} ya lo tiene alguien más`, 'error');
     enviar.disabled = true;
     enviar.classList.add('cargando');
@@ -3430,7 +3463,6 @@ function alCambiarSeguidores() {
   clearTimeout(temporizadorRed);
   temporizadorRed = setTimeout(() => {
     if (vistaActual === 'perfil') pintarVistaPerfil();
-    if (vistaActual === 'inicio') pintarInicio();
   }, 500);
 }
 
@@ -3646,6 +3678,7 @@ function seccionPerfil({ titulo, accion, filas, vacio, textoVerTodos }) {
 
 /** Un álbum abierto desde un perfil: portada, nombre, dueño y sus canciones. */
 function pintarAlbumDePerfil() {
+  ++pintandoPerfil; // una carga de perfil pendiente ya no debe pintarse encima
   const { album, audios, dueno } = albumVisto;
   const canciones = album.canciones.map((x) => audios.get(x)).filter(Boolean).map(comoCancion);
   const barra = document.createElement('div');
@@ -3704,6 +3737,10 @@ function menuAlbumDePerfil(album, audios) {
 async function guardarVarias(canciones) {
   const faltan = canciones.filter((c) => !localDe(c));
   if (!faltan.length) return mostrarAviso('Ya tienes todas en tu biblioteca.', 2500);
+  if (!nube.conectado()) {
+    for (const cancion of faltan) await descargarSinCuenta(cancion);
+    return;
+  }
   try {
     for (const cancion of faltan) await nube.guardarEnBiblioteca({ id: cancion.idNube });
     mostrarAviso(`${faltan.length} ${faltan.length === 1 ? 'canción se guarda' : 'canciones se guardan'} en tu biblioteca.`, 3000);
@@ -3839,6 +3876,7 @@ function menuMiCuenta() {
 
 /** Sin cuenta (o sin perfil): invitación a entrar. */
 function pintarPerfilSinCuenta() {
+  ++pintandoPerfil;
   const caja = el.perfilContenido;
   caja.dataset.id = '';
   const tarjeta = document.createElement('div');
@@ -3910,6 +3948,24 @@ function carrusel(elementos) {
 }
 
 let pintandoInicio = 0;
+/** Tus canciones en Inicio (lo último que guardaste). */
+function seccionDescargasInicio() {
+  const recientes = [...cancionesLocales].sort((a, b) => (b.agregada ?? 0) - (a.agregada ?? 0)).slice(0, 12);
+  let seccion;
+  if (recientes.length) {
+    seccion = seccionInicio('Tus descargas', carrusel(recientes.map((cancion) => tarjetaCancion(cancion, urlDePortada(cancion), () => {
+      listaQueSuena = null;
+      reproductor.reproducirLista(cancionesLocales, cancionesLocales.findIndex((c) => c.id === cancion.id));
+    }))));
+  } else {
+    seccion = document.createElement('div');
+    seccion.className = 'vacio';
+    seccion.innerHTML = '<p class="vacio__titulo">Todavía no hay canciones</p><p class="vacio__texto">Toca <strong>Crear</strong> abajo para subir tus MP3, M4A o MP4.</p>';
+  }
+  seccion.dataset.descargas = '';
+  return seccion;
+}
+
 async function pintarInicio() {
   const este = ++pintandoInicio;
   const perfil = nube.perfil();
@@ -3920,19 +3976,7 @@ async function pintarInicio() {
   encabezado.textContent = perfil ? `${saludo()}, ${perfil.nombre?.split(' ')[0] || `@${perfil.usuario}`}` : saludo();
   partes.push(encabezado);
 
-  // Tus canciones (lo último que guardaste)
-  const recientes = [...cancionesLocales].sort((a, b) => (b.agregada ?? 0) - (a.agregada ?? 0)).slice(0, 12);
-  if (recientes.length) {
-    partes.push(seccionInicio('Tus descargas', carrusel(recientes.map((cancion) => tarjetaCancion(cancion, urlDePortada(cancion), () => {
-      listaQueSuena = null;
-      reproductor.reproducirLista(cancionesLocales, cancionesLocales.findIndex((c) => c.id === cancion.id));
-    })))));
-  } else {
-    const vacio = document.createElement('div');
-    vacio.className = 'vacio';
-    vacio.innerHTML = '<p class="vacio__titulo">Todavía no hay canciones</p><p class="vacio__texto">Toca <strong>Crear</strong> abajo para subir tus MP3, M4A o MP4.</p>';
-    partes.push(vacio);
-  }
+  partes.push(seccionDescargasInicio());
   el.inicioContenido.replaceChildren(...partes);
 
   if (!puedeEntrar().si) return;
@@ -4373,7 +4417,7 @@ async function abrirExplorar({ masResultados = false } = {}) {
     resultadosExplorar = masResultados ? [...resultadosExplorar, ...nuevos] : nuevos;
     el.masExplorar.hidden = nuevos.length < 50;
   } catch (error) {
-    el.estadoExplorar.textContent = `No se pudo cargar: ${error.message}`;
+    if (este === pedidoExplorar) el.estadoExplorar.textContent = `No se pudo cargar: ${error.message}`;
     return;
   }
   pintarExplorar();
@@ -4599,6 +4643,7 @@ function botonGuardarAudio(cancion) {
     boton.textContent = '…';
     boton.disabled = true;
     await guardarAudio(cancion);
+    boton.replaceWith(botonGuardarAudio(cancion)); // ya guardada, o lista para intentar otra vez
   });
   return boton;
 }
@@ -4663,7 +4708,10 @@ function menuAudio(cancion) {
             try {
               await nube.borrarParaTodos(cancion.idNube);
               mostrarAviso(`"${cancion.titulo}" se borró de Muzzy.`, 3000);
-              abrirExplorar();
+              if (vistaActual === 'explorar') abrirExplorar();
+              else if (vistaActual === 'perfil') pintarVistaPerfil();
+              else if (vistaActual === 'artista' && cancion.artista) abrirArtista(cancion.artista);
+              else if (vistaActual === 'inicio') pintarInicio();
             } catch (error) {
               mostrarAviso(`No se pudo borrar: ${error.message}`, 4000);
             }
@@ -5007,7 +5055,7 @@ async function pintarSocial(cancion) {
 
 /** Llegó un me gusta o comentario nuevo (de cualquiera): si es de lo que ves, se actualiza. */
 function alCambiarAudioSocial(audio) {
-  if (pantallaAbierta && audio && audio === pantallaAudio) pintarSocial(reproductor.estado().cancion);
+  if (pantallaAbierta && (!audio || audio === pantallaAudio)) pintarSocial(reproductor.estado().cancion);
 }
 
 /* ---------- Avisos ---------- */

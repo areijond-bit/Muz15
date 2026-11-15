@@ -53,6 +53,8 @@ create table if not exists public.audios (
 create index if not exists audios_dueno on public.audios (dueno);
 create index if not exists audios_creado on public.audios (creado desc);
 create index if not exists audios_huella on public.audios (huella);
+-- Un mismo archivo (bien subido) solo existe una vez, aunque dos teléfonos lo suban a la vez.
+create unique index if not exists audios_huella_unica on public.audios (huella) where bytes >= 20480;
 alter table public.audios enable row level security;
 drop policy if exists "audios: todos los ven" on public.audios;
 create policy "audios: todos los ven" on public.audios for select to anon, authenticated using (true);

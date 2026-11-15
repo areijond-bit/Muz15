@@ -15,7 +15,7 @@ import { supabase } from './cuenta.js';
 import { ALMACEN } from './config.js';
 import { comprimir, huella } from './comprimir.js';
 import {
-  listarCanciones, listarListas, actualizarCancion, guardarCancion, guardarLista, borrarLista,
+  listarCanciones, listarListas, guardarCancion, guardarLista, borrarLista, parchearCancion, parchearLista,
 } from './db.js';
 
 const db = () => supabase();
@@ -78,6 +78,8 @@ export const conectado = () => Boolean(yo && miPerfil);
 /** Se llama al entrar o salir. @returns tu perfil (null si todavía no lo creas). */
 export async function conectar(usuario) {
   desuscribir();
+  clearTimeout(temporizador);
+  await enCurso?.catch(() => {}); // que una vuelta de la cuenta anterior no siga con la nueva
   yo = usuario?.id ?? null;
   miPerfil = null;
   if (!yo) return null;
@@ -102,10 +104,10 @@ async function olvidarMarcas() {
   // Las canciones conservan de qué audio son (así se suman a tu biblioteca sin volver a
   // subirlas); solo se olvida que ya estaban "en tu cuenta" (era la de antes, o ninguna).
   for (const c of await listarCanciones()) {
-    if (c.enNube) await actualizarCancion({ ...c, enNube: false }, { desdeNube: true });
+    if (c.enNube) await parchearCancion(c.id, { enNube: false });
   }
   for (const l of await listarListas()) {
-    if (l.idNube || l.enNube) await guardarLista({ ...l, idNube: null, enNube: false }, { desdeNube: true });
+    if (l.idNube || l.enNube) await parchearLista(l.id, { idNube: null, enNube: false });
   }
 }
 
@@ -215,8 +217,12 @@ async function subirCancion(cancion) {
   if (original.byteLength < MINIMO_BYTES) throw new Error(`El audio de "${cancion.titulo}" está vacío`);
   const firma = await huella(original);
 
-  const { data: iguales } = await db().from('audios').select('*').eq('huella', firma).gte('bytes', MINIMO_BYTES).limit(1);
-  let fila = iguales?.[0];
+  const buscarIgual = async () => {
+    const { data, error } = await db().from('audios').select('*').eq('huella', firma).gte('bytes', MINIMO_BYTES).limit(1);
+    if (error) throw traducir(error); // sin esto, un error haría subirla otra vez (duplicada)
+    return data?.[0] ?? null;
+  };
+  let fila = await buscarIgual();
   if (!fila) {
     const listo = await comprimir(original, cancion.tipo);
     const tipo = EXTENSIONES[listo.tipo] ? listo.tipo : 'audio/mpeg';
@@ -232,17 +238,28 @@ async function subirCancion(cancion) {
       album: (cancion.album || '').slice(0, 200),
       archivo, portada, tipo, bytes: listo.datos.byteLength, duracion: listo.duracion ?? cancion.duracion ?? null, huella: firma,
     }).select().single();
-    if (error) throw traducir(error);
-    fila = data;
+    // Otro dispositivo subió el mismo archivo al mismo tiempo: se usa el suyo.
+    if (error?.code === '23505') fila = await buscarIgual();
+    else if (error) throw traducir(error);
+    else fila = data;
+    if (!fila) throw new Error('No se pudo registrar el audio');
+  }
+  // ¿Ya tienes aquí otra copia ligada a ese mismo audio? Entonces esta sobra.
+  const otraCopia = (await listarCanciones()).find((c) => c.idNube === fila.id && c.id !== cancion.id);
+  if (otraCopia) {
+    await ganchos.borrarLocal?.(cancion);
+    return fila;
   }
   const { error } = await db().from('guardados').upsert({ usuario: yo, audio: fila.id, orden: cancion.orden ?? null });
   if (error) throw traducir(error);
   // Si era de alguien más, se queda con los datos de su dueño (como en YouTube).
   const datosDueno = fila.dueno === yo ? {} : { titulo: fila.titulo, artista: fila.artista, album: fila.album };
-  await actualizarCancion({
-    ...cancion, ...datosDueno,
+  const sigue = await parchearCancion(cancion.id, {
+    ...datosDueno,
     idNube: fila.id, dueno: fila.dueno, enNube: true, portadaNube: fila.portada, portadaBytes: cancion.portada?.datos?.byteLength ?? 0,
-  }, { desdeNube: true });
+  });
+  // La borraste mientras se subía: tampoco queda en tu cuenta.
+  if (!sigue) await db().from('guardados').delete().eq('usuario', yo).eq('audio', fila.id);
   return fila;
 }
 
@@ -301,16 +318,33 @@ export function sincronizar() {
 const mismoTexto = (a, b) => (a ?? '') === (b ?? '');
 const fecha = (texto) => Date.parse(texto) || 0;
 
+/** Tu biblioteca completa (Supabase da máximo 1000 filas por pedido: se pide por páginas). */
+async function leerGuardados(cuenta) {
+  const todos = [];
+  const POR_PAGINA = 1000;
+  for (let desde = 0; ; desde += POR_PAGINA) {
+    const { data, error } = await db().from('guardados')
+      .select('orden, agregado, siguiente, audio:audios!guardados_audio_fkey(*, perfil:perfiles!audios_dueno_fkey(usuario))')
+      .eq('usuario', cuenta).order('audio').range(desde, desde + POR_PAGINA - 1);
+    if (error) throw traducir(error);
+    todos.push(...data);
+    if (data.length < POR_PAGINA) return todos;
+  }
+}
+
 async function unaVuelta() {
+  const cuenta = yo; // si entras con otra cuenta a medio camino, esta vuelta se detiene
+  const sigueLaMisma = () => yo === cuenta;
   const inicioVuelta = Date.now();
   const ultimaVuelta = leer(CLAVE_ULTIMA_VUELTA, 0);
   await quitarLasBorradasSinInternet();
 
-  const [{ data: guardados, error: e1 }, { data: remotas, error: e2 }] = await Promise.all([
-    db().from('guardados').select('orden, agregado, siguiente, audio:audios!guardados_audio_fkey(*, perfil:perfiles!audios_dueno_fkey(usuario))').eq('usuario', yo),
-    db().from('listas').select('*').eq('dueno', yo),
+  const [guardados, { data: remotas, error: e2 }] = await Promise.all([
+    leerGuardados(cuenta),
+    db().from('listas').select('*').eq('dueno', cuenta),
   ]);
-  if (e1 || e2) throw traducir(e1 ?? e2);
+  if (e2) throw traducir(e2);
+  if (!sigueLaMisma()) return;
 
   const remotos = new Map(guardados.filter((g) => g.audio && g.audio.bytes >= MINIMO_BYTES).map((g) => [g.audio.id, g]));
   const rotos = new Set(guardados.filter((g) => g.audio && g.audio.bytes < MINIMO_BYTES).map((g) => g.audio.id));
@@ -327,18 +361,26 @@ async function unaVuelta() {
   const borradoSeguro = desaparecidas <= 3 || desaparecidas <= enNubeAqui * 0.3;
   if (!borradoSeguro) console.warn(`Nube: ${desaparecidas} canciones ya no están en tu cuenta; no se borran aquí por seguridad.`);
   for (const c of locales) {
+    if (!sigueLaMisma()) return;
     if (!c.idNube) { porSubir.push(c); continue; }
     if (rotos.has(c.idNube)) continue; // ligada a un audio vacío: la arregla repararTitulos (app.js)
     const g = remotos.get(c.idNube);
-    if (!g) {
-      if (c.enNube) {
-        if (borradoSeguro) { await ganchos.borrarLocal(c); cambioAqui = true; } // la quitaste en otro dispositivo
-      } else {
-        await db().from('guardados').upsert({ usuario: yo, audio: c.idNube, orden: c.orden ?? null });
+    try {
+      if (!g) {
+        if (c.enNube) {
+          if (borradoSeguro) { await ganchos.borrarLocal(c); cambioAqui = true; } // la quitaste en otro dispositivo
+        } else {
+          // De un audio que ya existe (bajado sin cuenta, o de tu cuenta anterior): a tu biblioteca.
+          const { error } = await db().from('guardados').upsert({ usuario: yo, audio: c.idNube, orden: c.orden ?? null });
+          if (!error) await parchearCancion(c.id, { enNube: true });
+          else if (error.code === '23503') await parchearCancion(c.id, { idNube: null, enNube: false }); // ese audio ya no existe: se sube como nuevo
+        }
+        continue;
       }
-      continue;
+      cambioAqui = (await igualarCancion(c, g, { ultimaVuelta, idLocalDe, idNubeDe })) || cambioAqui;
+    } catch (error) {
+      anotarFallo(c.id, c.titulo, error); // una canción con problemas no detiene a las demás
     }
-    cambioAqui = (await igualarCancion(c, g, { ultimaVuelta, idLocalDe, idNubeDe })) || cambioAqui;
   }
 
   // 2. Listas (antes de bajar, para que se vean ya; se repasan al terminar).
@@ -349,6 +391,7 @@ async function unaVuelta() {
   let hechas = 0;
   const porBajar = [...remotos.values()].filter((g) => !porNube.has(g.audio.id) && !fallaHaceRato(g.audio.id));
   for (const [i, g] of porBajar.entries()) {
+    if (!sigueLaMisma()) return;
     ganchos.avisar?.(`Descargando tu música: ${i + 1} de ${porBajar.length} · ${g.audio.titulo}`);
     try {
       await bajarCancion(g, idLocalDe);
@@ -362,6 +405,7 @@ async function unaVuelta() {
   // 4. Subir lo nuevo de este dispositivo.
   const subibles = porSubir.filter((c) => !fallaHaceRato(c.id));
   for (const [i, c] of subibles.entries()) {
+    if (!sigueLaMisma()) return;
     ganchos.avisar?.(`Subiendo tus canciones: ${i + 1} de ${subibles.length} · ${c.titulo}`);
     try {
       await subirCancion(c);
@@ -382,7 +426,9 @@ async function unaVuelta() {
       : 'Tu música está al día en todos tus dispositivos.', 4000);
     if (fallaron) programarVuelta(ESPERA_TRAS_FALLO_MS + 1000);
   }
+  if (!sigueLaMisma()) return;
   guardar(CLAVE_ULTIMA_VUELTA, inicioVuelta);
+  await refrescarMapa(); // que lo recién subido/bajado se pueda borrar también en la nube
 }
 
 // Lo que falló (sin internet, archivo dañado…) no se reintenta en cada vuelta.
@@ -414,19 +460,19 @@ async function igualarCancion(c, g, { ultimaVuelta, idLocalDe, idNubeDe }) {
     }
     const { error } = await db().from('audios').update(cambios).eq('id', a.id);
     if (error) throw traducir(error);
-    await actualizarCancion({ ...c, portadaNube: cambios.portada ?? a.portada, portadaBytes: c.portada?.datos?.byteLength ?? 0 }, { desdeNube: true });
+    await parchearCancion(c.id, { portadaNube: cambios.portada ?? a.portada, portadaBytes: c.portada?.datos?.byteLength ?? 0 });
   } else {
-    let nueva = null;
+    let campos = null;
     if (datosDistintos || c.duenoUsuario !== (a.perfil?.usuario ?? null) || c.dueno !== a.dueno) {
-      nueva = { ...c, titulo: a.titulo, artista: a.artista, album: a.album, dueno: a.dueno, duenoUsuario: a.perfil?.usuario ?? null };
+      campos = { titulo: a.titulo, artista: a.artista, album: a.album, dueno: a.dueno, duenoUsuario: a.perfil?.usuario ?? null };
     }
     if ((a.portada ?? null) !== (c.portadaNube ?? null)) {
       const portada = a.portada ? await bajarBytes(a.portada).then((datos) => ({ datos, tipo: 'image/jpeg' })).catch(() => c.portada) : null;
-      nueva = { ...(nueva ?? c), portada, portadaNube: a.portada, portadaBytes: portada?.datos?.byteLength ?? 0 };
+      campos = { ...campos, portada, portadaNube: a.portada, portadaBytes: portada?.datos?.byteLength ?? 0 };
     }
-    if (nueva) {
-      await actualizarCancion(nueva, { desdeNube: true });
-      c = nueva;
+    if (campos) {
+      await parchearCancion(c.id, campos);
+      c = { ...c, ...campos };
       cambioAqui = true;
     }
   }
@@ -440,7 +486,7 @@ async function igualarCancion(c, g, { ultimaVuelta, idLocalDe, idNubeDe }) {
     await db().from('guardados').update({ orden: c.orden ?? null, siguiente: siguienteNube }).eq('usuario', yo).eq('audio', a.id);
     return cambioAqui;
   }
-  await actualizarCancion({ ...c, orden: g.orden ?? undefined, siguienteFija: g.siguiente ? idLocalDe(g.siguiente) : null }, { desdeNube: true });
+  await parchearCancion(c.id, { orden: g.orden ?? undefined, siguienteFija: g.siguiente ? idLocalDe(g.siguiente) : null });
   return true;
 }
 
@@ -479,7 +525,8 @@ async function igualarListas(remotas, { idLocalDe, idNubeDe, porNube }) {
     if (!l.idNube || (!r && !l.enNube)) {
       const { data, error } = await db().from('listas').insert({ ...(l.idNube ? { id: l.idNube } : {}), dueno: yo, ...comoRemota(l, null) }).select().single();
       if (error) { console.warn('No se pudo subir la lista', l.nombre, error.message); continue; }
-      await guardarLista({ ...l, idNube: data.id, enNube: true, cambiadaNube: data.cambiada }, { desdeNube: true });
+      const sigue = await parchearLista(l.id, { idNube: data.id, enNube: true, cambiadaNube: data.cambiada });
+      if (!sigue) await db().from('listas').delete().eq('id', data.id).eq('dueno', yo); // la borraste mientras tanto
       continue;
     }
     if (!r) { // la borraste en otro dispositivo
@@ -493,12 +540,13 @@ async function igualarListas(remotas, { idLocalDe, idNubeDe, porNube }) {
       const subir = comoRemota(l, r);
       if (firma(subir) !== firma(r)) {
         const { data, error } = await db().from('listas').update(subir).eq('id', r.id).select().single();
-        if (!error) await guardarLista({ ...l, cambiadaNube: data.cambiada }, { desdeNube: true });
+        if (!error) await parchearLista(l.id, { cambiadaNube: data.cambiada });
       }
     } else {
       const bajar = comoLocal(r, l);
       if (firma(bajar) !== firma(l) || l.cambiadaNube !== r.cambiada) {
-        await guardarLista(bajar, { desdeNube: true });
+        const { id: _id, ...campos } = bajar;
+        await parchearLista(l.id, campos);
         cambio = true;
       }
     }
@@ -524,9 +572,9 @@ async function refrescarMapa() {
 }
 
 async function alCambiarAlgoAqui(evento) {
-  const { tipo, id, borrada } = evento.detail ?? {};
+  const { tipo, id, borrada, idNube: deAviso } = evento.detail ?? {};
   if (borrada) {
-    const idNube = mapaNube.get(`${tipo}:${id}`);
+    const idNube = deAviso ?? mapaNube.get(`${tipo}:${id}`);
     if (idNube) {
       const borradas = leer(CLAVE_BORRADAS, {});
       borradas[`${tipo}:${idNube}`] = Date.now();
@@ -540,15 +588,15 @@ async function alCambiarAlgoAqui(evento) {
 }
 
 async function quitarLasBorradasSinInternet() {
-  const borradas = leer(CLAVE_BORRADAS, {});
-  for (const clave of Object.keys(borradas)) {
+  for (const clave of Object.keys(leer(CLAVE_BORRADAS, {}))) {
     const [tipo, idNube] = clave.split(':');
     const { error } = tipo === 'cancion'
       ? await db().from('guardados').delete().eq('usuario', yo).eq('audio', idNube)
       : await db().from('listas').delete().eq('id', idNube).eq('dueno', yo);
     if (error) return; // sin internet: se intenta después
-    delete borradas[clave];
-    guardar(CLAVE_BORRADAS, borradas);
+    const actuales = leer(CLAVE_BORRADAS, {});
+    delete actuales[clave];
+    guardar(CLAVE_BORRADAS, actuales);
   }
 }
 
@@ -568,8 +616,8 @@ function suscribir() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'escuchando', filter: `usuario=eq.${yo}` }, (cambio) => ganchos.alEscuchando?.(cambio.new))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'siguiendo' }, () => ganchos.alCambiarSeguidores?.())
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'perfiles' }, () => ganchos.alCambiarSeguidores?.())
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'reacciones' }, (cambio) => ganchos.alCambiarAudioSocial?.((cambio.new?.audio ?? cambio.old?.audio)))
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'comentarios' }, (cambio) => ganchos.alCambiarAudioSocial?.((cambio.new?.audio ?? cambio.old?.audio)))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'reacciones' }, (cambio) => ganchos.alCambiarAudioSocial?.(cambio.new?.audio ?? cambio.old?.audio ?? null))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'comentarios' }, (cambio) => ganchos.alCambiarAudioSocial?.(cambio.new?.audio ?? cambio.old?.audio ?? null))
     .subscribe();
   // Al volver a la app (o recuperar internet), ponerse al día.
   document.addEventListener('visibilitychange', alVolver);

@@ -6,7 +6,7 @@
 // IMPORTANTE: cada vez que publiques cambios, sube el número de VERSION.
 // Así el teléfono sabe que tiene que descargar la versión nueva.
 
-const VERSION = 'muz15-v50';
+const VERSION = 'muz15-v51';
 
 const ARCHIVOS_APP = [
   './',
@@ -69,12 +69,15 @@ self.addEventListener('fetch', (evento) => {
   const url = new URL(request.url);
   if (url.origin !== location.origin) return; // ej. Eruda desde el CDN: que vaya directo
   if (url.pathname.includes('/api/')) return;  // el servidor local de la PC: nunca guardar
+  // "Buscar actualizaciones" pregunta por sw.js sin copia guardada: que vaya directo a internet.
+  if (request.cache === 'no-store' || url.pathname.endsWith('/sw.js')) return;
 
   evento.respondWith((async () => {
     const cache = await caches.open(VERSION);
 
     // Abrir la app (con o sin ?debug) siempre devuelve el index guardado.
-    if (request.mode === 'navigate') {
+    // (Otras páginas, como privacidad.html, van a internet.)
+    if (request.mode === 'navigate' && /\/(index\.html)?$/.test(url.pathname)) {
       return (await cache.match('index.html')) ?? fetch(request);
     }
 
