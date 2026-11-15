@@ -27,6 +27,7 @@ const el = {
   audio: $('audio'),
   audio2: $('audio2'),
   ajustes: $('ajustes'),
+  enviarPC: $('enviar-pc'),
   pestanas: document.querySelectorAll('.pestana'),
   vistaTelefono: $('vista-telefono'),
   vistaServidor: $('vista-servidor'),
@@ -886,6 +887,56 @@ el.progreso.addEventListener('input', () => { arrastrando = true; });
 el.progreso.addEventListener('change', () => {
   reproductor.irA(Number(el.progreso.value));
   arrastrando = false;
+});
+
+/* ---------- Enviar a mi PC ---------- */
+// Cuando usas Muz15 en la computadora, lo que importas vive solo en ese navegador.
+// Este botón copia las canciones a la carpeta de Navidrome (C:\Music\Desde Muz15)
+// para que aparezcan en el celular, en la pestaña Mi PC. Solo existe en la PC,
+// porque lo atiende tools/servidor.mjs.
+
+fetch('api/estado')
+  .then((respuesta) => (respuesta.ok ? respuesta.json() : null))
+  .then((estado) => { el.enviarPC.hidden = !estado?.enviarAPC; })
+  .catch(() => { /* en el celular no existe: el botón se queda oculto */ });
+
+/** Nombre del archivo en la PC: "Artista - Título.ext", con lo que editaste aquí. */
+function nombreParaPC(cancion) {
+  const extension = (cancion.nombreArchivo?.match(/\.[^.]+$/)?.[0] ?? '.mp3').toLowerCase();
+  const base = cancion.artista && cancion.artista !== SIN_ARTISTA ? `${cancion.artista} - ${cancion.titulo}` : cancion.titulo;
+  return base + extension;
+}
+
+el.enviarPC.addEventListener('click', async () => {
+  // Las que bajaste de Mi PC ya están allá.
+  const propias = cancionesLocales.filter((c) => !c.idServidor);
+  if (!propias.length) return mostrarAviso('No hay canciones para enviar.', 3000);
+  el.enviarPC.disabled = true;
+  let nuevas = 0;
+  let yaEstaban = 0;
+  let fallidas = 0;
+  for (const [i, cancion] of propias.entries()) {
+    el.enviarPC.textContent = `Enviando ${i + 1} de ${propias.length}…`;
+    try {
+      const respuesta = await fetch(`api/subir?nombre=${encodeURIComponent(nombreParaPC(cancion))}`, {
+        method: 'POST',
+        body: await obtenerAudio(cancion),
+      });
+      const resultado = await respuesta.json();
+      if (!respuesta.ok) throw new Error(resultado.error);
+      if (resultado.ya) yaEstaban++;
+      else nuevas++;
+    } catch (error) {
+      console.error('No se pudo enviar', cancion.titulo, error);
+      fallidas++;
+    }
+  }
+  el.enviarPC.disabled = false;
+  el.enviarPC.textContent = '⇪ Enviar estas canciones a mi PC (para verlas en el cel)';
+  let mensaje = `${nuevas} enviadas a C:\\Music`;
+  if (yaEstaban) mensaje += `, ${yaEstaban} ya estaban`;
+  if (fallidas) mensaje += `, ${fallidas} fallaron`;
+  mostrarAviso(`${mensaje}. En un par de minutos aparecen en tu cel, en la pestaña Mi PC.`, 8000);
 });
 
 /* ---------- Ajustes ---------- */

@@ -52,6 +52,7 @@ self.addEventListener('fetch', (evento) => {
 
   const url = new URL(request.url);
   if (url.origin !== location.origin) return; // ej. Eruda desde el CDN: que vaya directo
+  if (url.pathname.includes('/api/')) return;  // el servidor local de la PC: nunca guardar
 
   evento.respondWith((async () => {
     const cache = await caches.open(VERSION);

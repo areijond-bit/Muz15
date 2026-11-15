@@ -115,6 +115,8 @@ button { font: inherit; color: inherit; }
 
 .boton--ancho { width: 100%; justify-content: center; padding: var(--espacio-m); }
 
+#enviar-pc { margin-top: var(--espacio-m); }
+
 .boton--discreto {
   display: block;
   margin: var(--espacio-l) auto 0;
