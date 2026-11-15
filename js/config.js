@@ -1,4 +1,4 @@
-// config.js — Datos para conectar Muz15 con tu nube. No son secretos: van en la
+// config.js — Datos para conectar Muzzy con tu nube. No son secretos: van en la
 // página (la seguridad la ponen las reglas de la base de datos, nube/esquema.sql).
 //
 // Dónde sale cada uno: ver docs/nube.md.
@@ -10,7 +10,7 @@ export const SUPABASE_URL = 'https://sslzsoeyghcptpkemvef.supabase.co';
 export const SUPABASE_LLAVE_PUBLICA = 'sb_publishable_0Q5BCi9VZ29gziOnd5VBsA_NYrfbdbo';
 
 /** Google Cloud → Credenciales → ID de cliente de tipo "Aplicación web" */
-export const GOOGLE_CLIENTE_WEB = '';
+export const GOOGLE_CLIENTE_WEB = '340319872333-9q4j9ivl6e7dmgin6g0bjs98pdpfle1d.apps.googleusercontent.com';
 
 /** ¿Ya está todo puesto? */
 export const nubeConfigurada = () => Boolean(SUPABASE_URL && SUPABASE_LLAVE_PUBLICA && GOOGLE_CLIENTE_WEB);
