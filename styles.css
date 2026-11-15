@@ -1125,49 +1125,7 @@ button { font: inherit; color: inherit; }
 }
 .boton-perfil--acento { background: var(--color-acento); color: var(--color-texto-sobre-acento); }
 
-.descubrir { margin: var(--espacio-s) 0 var(--espacio-m); }
-.descubrir__titulo { margin: 0 0 var(--espacio-s); font-weight: var(--peso-fuerte); }
-.descubrir__carrusel { display: flex; gap: var(--espacio-s); overflow-x: auto; scrollbar-width: none; }
-.descubrir__carrusel::-webkit-scrollbar { display: none; }
-.tarjeta-persona {
-  flex: none;
-  width: 150px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: var(--espacio-m) var(--espacio-s);
-  border: 1px solid var(--color-borde);
-  border-radius: var(--radio-m);
-  background: var(--color-superficie);
-  text-align: center;
-  cursor: pointer;
-}
-.tarjeta-persona__nombre { margin: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--peso-fuerte); }
-.tarjeta-persona__dato { margin: 0; min-height: 2.4em; color: var(--color-texto-suave); font-size: var(--texto-xs); }
-.tarjeta-persona .boton-perfil { flex: none; width: 100%; }
 
-.perfil-pestanas { display: flex; justify-content: center; border-bottom: 1px solid var(--color-borde); margin: 0 calc(-1 * var(--espacio-m)) 2px; }
-.perfil-pestanas__activa { display: grid; place-items: center; width: 33%; padding: 10px 0; border-bottom: 2px solid var(--color-texto); }
-.cuadricula { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin: 0 calc(-1 * var(--espacio-m)); }
-.cuadro { position: relative; aspect-ratio: 1; padding: 0; border: 0; background: var(--color-superficie); overflow: hidden; cursor: pointer; }
-.cuadro__portada { width: 100%; height: 100%; object-fit: cover; display: block; }
-.cuadro__titulo {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 16px 6px 5px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
-  color: #fff;
-  font-size: 11px;
-  font-weight: var(--peso-fuerte);
-  text-align: left;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.cuadro.sonando .cuadro__titulo { color: var(--color-acento); }
 
 .lista--personas { margin-bottom: var(--espacio-s); }
 .persona { display: flex; align-items: center; gap: var(--espacio-m); padding: var(--espacio-s) 0; cursor: pointer; }
@@ -1175,3 +1133,27 @@ button { font: inherit; color: inherit; }
 .persona__usuario { margin: 0; font-weight: var(--peso-fuerte); overflow: hidden; text-overflow: ellipsis; }
 .persona__nombre { margin: 0; color: var(--color-texto-suave); font-size: var(--texto-s); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .persona .boton-perfil { flex: none; }
+
+/* Secciones del perfil: Álbumes y Audios (como Spotify) */
+.seccion-perfil { margin: var(--espacio-m) 0 var(--espacio-l); }
+.seccion-perfil__cabecera { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--espacio-xs); }
+.seccion-perfil__titulo { margin: 0; font-size: var(--texto-l); font-weight: var(--peso-fuerte); }
+.seccion-perfil__accion { display: flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--color-texto); font: inherit; font-size: var(--texto-s); font-weight: var(--peso-fuerte); cursor: pointer; }
+.seccion-perfil .lista > li[hidden] { display: none; }
+.boton-ver-todos {
+  display: block;
+  margin: var(--espacio-s) auto 0;
+  padding: 8px var(--espacio-m);
+  border: 1px solid var(--color-texto-suave);
+  border-radius: var(--radio-redondo);
+  background: transparent;
+  color: var(--color-texto);
+  font: inherit;
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  cursor: pointer;
+}
+.album-perfil { display: flex; flex-direction: column; align-items: center; gap: var(--espacio-s); margin-bottom: var(--espacio-m); }
+.album-perfil .mosaico { width: 200px; height: 200px; }
+.album-perfil .cabecera-lista__acciones { width: 100%; }
+.album-perfil__dueno { display: flex; align-items: center; gap: var(--espacio-s); border: 0; background: transparent; color: var(--color-texto); font: inherit; font-size: var(--texto-s); font-weight: var(--peso-fuerte); cursor: pointer; }

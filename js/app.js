@@ -1591,9 +1591,9 @@ function marcarSonando(cancion) {
   for (const li of document.querySelectorAll('.lista > li[data-id]')) {
     li.classList.toggle('cancion--sonando', li.dataset.id === cancion?.id);
   }
-  // Tarjetas de Inicio y cuadros del perfil
-  for (const cuadro of document.querySelectorAll('.tarjeta[data-id], .cuadro[data-id]')) {
-    cuadro.classList.toggle('sonando', cuadro.dataset.id === cancion?.id);
+  // Tarjetas de Inicio
+  for (const tarjeta of document.querySelectorAll('.tarjeta[data-id]')) {
+    tarjeta.classList.toggle('sonando', tarjeta.dataset.id === cancion?.id);
   }
 }
 
@@ -1611,7 +1611,7 @@ async function pintarEspacio() {
 for (const pestana of el.pestanas) {
   pestana.addEventListener('click', () => {
     if (pestana.dataset.accion === 'crear') return abrirCrear();
-    if (pestana.dataset.vista === 'perfil') perfilVisto = null; // la pestaña siempre abre el tuyo
+    if (pestana.dataset.vista === 'perfil') { perfilVisto = null; albumVisto = null; } // la pestaña siempre abre el tuyo
     mostrarVista(pestana.dataset.vista);
   });
 }
@@ -2144,6 +2144,7 @@ AppNativa?.addListener('backButton', () => {
     listaAbierta = null;
     return pintarListas();
   }
+  if (vistaActual === 'perfil' && albumVisto) { albumVisto = null; return pintarVistaPerfil(); }
   if (vistaActual === 'perfil' && perfilVisto) return abrirPerfil(null);
   if (vistaActual !== 'inicio') return mostrarVista('inicio');
   AppNativa.minimizeApp();
@@ -3090,10 +3091,12 @@ function pedirPerfil() {
 // las canciones que ha subido.
 
 let perfilVisto = null; // null = el tuyo
+let albumVisto = null;  // un álbum abierto desde un perfil
 let pintandoPerfil = 0;
 
 function abrirPerfil(perfil) {
   perfilVisto = perfil?.id && perfil.id !== nube.perfil()?.id ? perfil : null;
+  albumVisto = null;
   mostrarVista('perfil');
 }
 
@@ -3128,6 +3131,7 @@ async function pintarVistaPerfil() {
   const caja = el.perfilContenido;
   if (!usuarioNube || !yo) return pintarPerfilSinCuenta();
 
+  if (albumVisto) return pintarAlbumDePerfil();
   const id = perfilVisto?.id ?? yo.id;
   const esMio = id === yo.id;
   const este = ++pintandoPerfil;
@@ -3137,8 +3141,18 @@ async function pintarVistaPerfil() {
   let red;
   let audios;
   let subidas;
+  let albumes;
+  let audiosDeAlbumes;
+  let veces;
   try {
-    [red, audios, subidas] = await Promise.all([nube.red(), nube.explorar({ dueno: id }), nube.cuantasSubidas(id)]);
+    [red, audios, subidas, albumes] = await Promise.all([
+      nube.red(), nube.explorar({ dueno: id }), nube.cuantasSubidas(id), nube.albumesDe(id),
+    ]);
+    // Portadas de los álbumes (sus canciones pueden ser de otras personas).
+    const yaTengo = new Set(audios.map((a) => a.id));
+    const faltan = [...new Set(albumes.flatMap((a) => a.canciones))].filter((x) => !yaTengo.has(x));
+    audiosDeAlbumes = new Map([...audios, ...await nube.audiosPorIds(faltan)].map((a) => [a.id, a]));
+    veces = await nube.vecesGuardado(audios.map((a) => a.id)).catch(() => new Map());
   } catch (error) {
     if (este === pintandoPerfil) caja.replaceChildren(textoCargando(`No se pudo cargar: ${error.message}`));
     return;
@@ -3181,7 +3195,7 @@ async function pintarVistaPerfil() {
   const cifras = document.createElement('div');
   cifras.className = 'perfil-cifras';
   const botonCanciones = cifra(subidas, 'canción', 'canciones');
-  botonCanciones.addEventListener('click', () => el.cuadriculaPerfil?.scrollIntoView({ behavior: 'smooth' }));
+  botonCanciones.addEventListener('click', () => el.seccionAudiosPerfil?.scrollIntoView({ behavior: 'smooth' }));
   const botonSeguidores = cifra(seguidores.length, 'seguidor', 'seguidores');
   botonSeguidores.addEventListener('click', () => listaDePersonas(`Seguidores de @${perfil.usuario}`, seguidores, red, yoSigo));
   const botonSeguidos = cifra(seguidos.length, 'seguido', 'seguidos');
@@ -3221,62 +3235,156 @@ async function pintarVistaPerfil() {
 
   const partes = [barra, cabeza, nombre, ...extra, botones];
 
-  // Descubrir personas (solo en el tuyo)
-  if (esMio) {
-    const sugerencias = [...red.perfiles.values()]
-      .filter((p) => p.id !== yo.id && !yoSigo.has(p.id))
-      .map((p) => {
-        const enComun = red.siguiendo.filter((s) => s.seguido === p.id && yoSigo.has(s.seguidor)).length;
-        return { perfil: p, enComun, teSigue: meSiguen.has(p.id) };
-      })
-      .sort((a, b) => Number(b.teSigue) - Number(a.teSigue) || b.enComun - a.enComun)
-      .slice(0, 15);
-    if (sugerencias.length) partes.push(descubrirPersonas(sugerencias));
-  }
-
-  // Cuadrícula de canciones subidas
-  const pestanas = document.createElement('div');
-  pestanas.className = 'perfil-pestanas';
-  pestanas.innerHTML = `<span class="perfil-pestanas__activa" aria-label="Canciones subidas">${icono('cuadricula')}</span>`;
-  partes.push(pestanas);
+  // Álbumes y audios (como las secciones del perfil de Spotify)
+  const conAlbumes = albumes.filter((a) => a.canciones.length || esMio);
+  partes.push(seccionPerfil({
+    titulo: 'Álbumes',
+    accion: esMio ? { icono: 'editar', texto: 'Administrar', alTocar: () => { chipBiblioteca = 'albumes'; mostrarVista('biblioteca'); } } : null,
+    vacio: esMio ? 'Crea un álbum en Crear y aparece aquí.' : `@${perfil.usuario} no tiene álbumes públicos.`,
+    textoVerTodos: 'Ver todos los álbumes',
+    filas: conAlbumes.map((album) => {
+      const portadas = album.canciones.map((x) => audiosDeAlbumes.get(x)?.portada).filter(Boolean);
+      const total = album.canciones.length;
+      const detalle = [esMio && !album.publica ? 'Privado' : 'Álbum', `${total} ${total === 1 ? 'canción' : 'canciones'}`].join(' · ');
+      return crearFila({ id: album.id, titulo: album.nombre, artista: detalle },
+        portadas.length ? portadas : ['icons/portada.png'],
+        botonMenu({ titulo: album.nombre }, () => menuAlbumDePerfil(album, audiosDeAlbumes)),
+        () => { albumVisto = { album, audios: audiosDeAlbumes, dueno: perfil }; pintarVistaPerfil(); });
+    }),
+  }));
 
   const canciones = audios.map(comoCancion);
-  if (canciones.length) {
-    const cuadricula = document.createElement('div');
-    cuadricula.className = 'cuadricula';
-    cuadricula.append(...canciones.map((cancion, i) => {
-      const cuadro = document.createElement('button');
-      cuadro.className = 'cuadro';
-      cuadro.dataset.id = cancion.id;
-      cuadro.append(crearPortada(cancion.portadaUrl ?? 'icons/portada.png', 'cuadro__portada'));
-      const titulo = document.createElement('span');
-      titulo.className = 'cuadro__titulo';
-      titulo.textContent = cancion.titulo;
-      cuadro.append(titulo);
-      cuadro.addEventListener('click', () => { listaQueSuena = null; reproductor.reproducirLista(canciones, i); });
-      cuadro.addEventListener('contextmenu', (evento) => { evento.preventDefault(); menuAudio(cancion); });
-      return cuadro;
-    }));
-    el.cuadriculaPerfil = cuadricula;
-    partes.push(cuadricula);
-  } else {
-    const vacio = document.createElement('div');
-    vacio.className = 'vacio';
-    vacio.innerHTML = '<p class="vacio__titulo"></p><p class="vacio__texto"></p>';
-    vacio.children[0].textContent = esMio ? 'Sube tu primera canción' : 'Todavía no sube nada';
-    vacio.children[1].textContent = esMio ? 'Lo que subas aparece aquí y tus amigos lo encuentran en Buscar.' : `Cuando @${perfil.usuario} suba canciones, aparecen aquí.`;
-    if (esMio) {
-      const subir = document.createElement('button');
-      subir.className = 'boton boton--primario';
-      subir.textContent = 'Subir audios';
-      subir.addEventListener('click', () => el.importar.click());
-      vacio.append(subir);
-    }
-    el.cuadriculaPerfil = null;
-    partes.push(vacio);
-  }
+  const seccionAudios = seccionPerfil({
+    titulo: 'Audios',
+    accion: esMio ? { icono: 'subir', texto: 'Subir', alTocar: () => el.importar.click() } : null,
+    vacio: esMio ? 'Sube tu primera canción: aparece aquí y tus amigos la encuentran en Buscar.' : `@${perfil.usuario} todavía no sube nada.`,
+    textoVerTodos: 'Ver todos los audios',
+    filas: canciones.map((cancion, i) => {
+      const n = veces.get(cancion.id) ?? 0;
+      return crearFila({ ...cancion, artista: [cancion.artista, `${n} ${n === 1 ? 'vez guardada' : 'veces guardada'}`].filter(Boolean).join(' · ') },
+        cancion.portadaUrl ?? 'icons/portada.png',
+        botonMenu(cancion, () => menuAudio(cancion)),
+        () => { listaQueSuena = null; reproductor.reproducirLista(canciones, i); });
+    }),
+  });
+  el.seccionAudiosPerfil = seccionAudios;
+  partes.push(seccionAudios);
   caja.replaceChildren(...partes);
   marcarSonando(reproductor.estado().cancion);
+}
+
+/** Sección del perfil: título (+ acción a la derecha), las primeras 3 filas y "Ver todos". */
+function seccionPerfil({ titulo, accion, filas, vacio, textoVerTodos }) {
+  const seccion = document.createElement('section');
+  seccion.className = 'seccion-perfil';
+  const cabecera = document.createElement('div');
+  cabecera.className = 'seccion-perfil__cabecera';
+  const h = document.createElement('h3');
+  h.className = 'seccion-perfil__titulo';
+  h.textContent = titulo;
+  cabecera.append(h);
+  if (accion) {
+    const boton = document.createElement('button');
+    boton.className = 'seccion-perfil__accion';
+    boton.innerHTML = `${icono(accion.icono, 18)}<span></span>`;
+    boton.lastChild.textContent = accion.texto;
+    boton.addEventListener('click', accion.alTocar);
+    cabecera.append(boton);
+  }
+  seccion.append(cabecera);
+  if (!filas.length) {
+    const nada = document.createElement('p');
+    nada.className = 'espacio';
+    nada.textContent = vacio;
+    seccion.append(nada);
+    return seccion;
+  }
+  const lista = document.createElement('ul');
+  lista.className = 'lista';
+  const MOSTRAR = 3;
+  filas.forEach((fila, i) => { fila.hidden = i >= MOSTRAR; });
+  lista.append(...filas);
+  seccion.append(lista);
+  if (filas.length > MOSTRAR) {
+    const verTodos = document.createElement('button');
+    verTodos.className = 'boton-ver-todos';
+    verTodos.textContent = textoVerTodos;
+    verTodos.addEventListener('click', () => {
+      const abiertas = !filas[MOSTRAR].hidden;
+      filas.forEach((fila, i) => { fila.hidden = !abiertas ? false : i >= MOSTRAR; });
+      verTodos.textContent = abiertas ? textoVerTodos : 'Ver menos';
+    });
+    seccion.append(verTodos);
+  }
+  return seccion;
+}
+
+/** Un álbum abierto desde un perfil: portada, nombre, dueño y sus canciones. */
+function pintarAlbumDePerfil() {
+  const { album, audios, dueno } = albumVisto;
+  const canciones = album.canciones.map((x) => audios.get(x)).filter(Boolean).map(comoCancion);
+  const barra = document.createElement('div');
+  barra.className = 'perfil-barra';
+  const atras = document.createElement('button');
+  atras.className = 'boton-icono';
+  atras.setAttribute('aria-label', `Volver al perfil de @${dueno.usuario}`);
+  atras.innerHTML = icono('atras');
+  atras.addEventListener('click', () => { albumVisto = null; pintarVistaPerfil(); });
+  barra.append(atras);
+
+  const cabecera = document.createElement('div');
+  cabecera.className = 'album-perfil';
+  const portadas = canciones.map((c) => c.portadaUrl).filter(Boolean);
+  const nombre = document.createElement('h2');
+  nombre.className = 'cabecera-lista__nombre';
+  nombre.textContent = album.nombre;
+  const meta = document.createElement('button');
+  meta.className = 'album-perfil__dueno';
+  meta.append(crearAvatar(dueno, 24), `${dueno.usuario} · ${canciones.length} ${canciones.length === 1 ? 'canción' : 'canciones'}`);
+  meta.addEventListener('click', () => { albumVisto = null; pintarVistaPerfil(); });
+  const acciones = document.createElement('div');
+  acciones.className = 'cabecera-lista__acciones';
+  const guardar = botonPerfil('Guardar todas', { alTocar: () => guardarVarias(canciones) });
+  guardar.style.flex = 'none';
+  const play = document.createElement('button');
+  play.className = 'boton-play';
+  play.setAttribute('aria-label', 'Reproducir álbum');
+  play.innerHTML = icono('play', 28);
+  play.addEventListener('click', () => { if (canciones.length) { listaQueSuena = null; reproductor.reproducirLista(canciones, 0); } });
+  const espaciador = document.createElement('span');
+  espaciador.className = 'espaciador';
+  acciones.append(guardar, espaciador, play);
+  cabecera.append(crearMosaico(portadas.length ? portadas : ['icons/portada.png']), nombre, meta, acciones);
+
+  const lista = document.createElement('ul');
+  lista.className = 'lista';
+  lista.append(...canciones.map((cancion, i) => filaAudio(cancion, canciones, i)));
+  el.perfilContenido.dataset.id = '';
+  el.perfilContenido.replaceChildren(barra, cabecera, lista);
+  marcarSonando(reproductor.estado().cancion);
+}
+
+function menuAlbumDePerfil(album, audios) {
+  const canciones = album.canciones.map((x) => audios.get(x)).filter(Boolean).map(comoCancion);
+  abrirHoja({
+    titulo: album.nombre,
+    subtitulo: `${canciones.length} ${canciones.length === 1 ? 'canción' : 'canciones'}`,
+    acciones: [
+      { icono: 'play', texto: 'Reproducir', alElegir: () => { if (canciones.length) { listaQueSuena = null; reproductor.reproducirLista(canciones, 0); } } },
+      { icono: 'descargar', texto: 'Guardar todas en mi biblioteca', alElegir: () => guardarVarias(canciones) },
+    ],
+  });
+}
+
+async function guardarVarias(canciones) {
+  const faltan = canciones.filter((c) => !localDe(c));
+  if (!faltan.length) return mostrarAviso('Ya tienes todas en tu biblioteca.', 2500);
+  try {
+    for (const cancion of faltan) await nube.guardarEnBiblioteca({ id: cancion.idNube });
+    mostrarAviso(`${faltan.length} ${faltan.length === 1 ? 'canción se guarda' : 'canciones se guardan'} en tu biblioteca.`, 3000);
+  } catch (error) {
+    mostrarAviso(`No se pudo guardar: ${error.message}`, 4000);
+  }
 }
 
 function textoCargando(texto = 'Cargando…') {
@@ -3284,30 +3392,6 @@ function textoCargando(texto = 'Cargando…') {
   p.className = 'espacio';
   p.textContent = texto;
   return p;
-}
-
-function descubrirPersonas(sugerencias) {
-  const seccion = document.createElement('div');
-  seccion.className = 'descubrir';
-  seccion.innerHTML = '<p class="descubrir__titulo">Descubrir personas</p>';
-  const carrusel = document.createElement('div');
-  carrusel.className = 'descubrir__carrusel';
-  for (const { perfil, enComun, teSigue } of sugerencias) {
-    const tarjeta = document.createElement('div');
-    tarjeta.className = 'tarjeta-persona';
-    const nombre = document.createElement('p');
-    nombre.className = 'tarjeta-persona__nombre';
-    nombre.textContent = perfil.nombre || perfil.usuario;
-    const dato = document.createElement('p');
-    dato.className = 'tarjeta-persona__dato';
-    dato.textContent = teSigue ? 'Te sigue' : enComun ? `${enComun} ${enComun === 1 ? 'seguidor' : 'seguidores'} en común` : `@${perfil.usuario}`;
-    const seguir = botonPerfil(teSigue ? 'Seguir también' : 'Seguir', { acento: true, alTocar: (evento) => { evento.stopPropagation(); cambiarSeguir(perfil, false); } });
-    tarjeta.append(crearAvatar(perfil, 80), nombre, dato, seguir);
-    tarjeta.addEventListener('click', () => abrirPerfil(perfil));
-    carrusel.append(tarjeta);
-  }
-  seccion.append(carrusel);
-  return seccion;
 }
 
 /** Hoja con una lista de personas (seguidores o seguidos). */

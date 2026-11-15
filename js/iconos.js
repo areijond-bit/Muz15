@@ -45,7 +45,6 @@ const TRAZOS = {
   inicio: { linea: 'M4 10.5L12 4l8 6.5V20h-5.5v-6h-5v6H4z' },
   biblioteca: { linea: 'M5 4v16M10 4v16M14.5 4.6l5 14.8' },
   menu: { linea: 'M4 7h16M4 12h16M4 17h16' },
-  cuadricula: { linea: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z' },
   compartir: { linea: 'M12 15V4M8 8l4-4 4 4M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6' },
   seguirPersona: { linea: 'M10 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM3 21a7 7 0 0 1 14 0M19 8v6M16 11h6' },
   reloj: { linea: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2' },

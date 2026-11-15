@@ -630,6 +630,30 @@ export async function dejarDeSeguir(id) {
   if (error) throw traducir(error);
 }
 
+/** Los álbumes de alguien (los tuyos todos; de otros, solo los públicos). */
+export async function albumesDe(dueno) {
+  const { data, error } = await db().from('listas').select('*')
+    .eq('dueno', dueno).eq('tipo', 'album').order('cambiada', { ascending: false });
+  if (error) throw traducir(error);
+  return data;
+}
+
+/** Audios por id (para las portadas y canciones de un álbum). */
+export async function audiosPorIds(ids) {
+  if (!ids.length) return [];
+  const { data, error } = await db().from('audios').select('*, perfil:perfiles(id, usuario, nombre, foto)').in('id', ids);
+  if (error) throw traducir(error);
+  return data;
+}
+
+/** Map id de audio → cuántas personas lo tienen guardado. */
+export async function vecesGuardado(ids) {
+  if (!ids.length) return new Map();
+  const { data, error } = await db().rpc('veces_guardado', { ids });
+  if (error) throw traducir(error);
+  return new Map(data.map((fila) => [fila.audio, Number(fila.veces)]));
+}
+
 export async function perfilPorId(id) {
   const { data, error } = await db().from('perfiles').select('*').eq('id', id).maybeSingle();
   if (error) throw traducir(error);

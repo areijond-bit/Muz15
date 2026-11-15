@@ -118,6 +118,20 @@ create policy "siguiendo: sigues tú" on public.siguiendo for insert to authenti
 drop policy if exists "siguiendo: dejas de seguir tú" on public.siguiendo;
 create policy "siguiendo: dejas de seguir tú" on public.siguiendo for delete to authenticated using (seguidor = auth.uid());
 
+-- ---------- "N veces guardada" ----------
+-- Cuántas personas (sin contar al dueño) tienen cada audio en su biblioteca.
+-- La biblioteca de cada quien es privada; esto solo da el número.
+create or replace function public.veces_guardado(ids uuid[])
+returns table (audio uuid, veces bigint)
+language sql stable security definer set search_path = public as $$
+  select g.audio, count(*)
+  from public.guardados g join public.audios a on a.id = g.audio
+  where g.audio = any (ids) and g.usuario <> a.dueno
+  group by g.audio
+$$;
+revoke all on function public.veces_guardado(uuid[]) from public;
+grant execute on function public.veces_guardado(uuid[]) to authenticated;
+
 -- ---------- Lo que estás escuchando ----------
 create table if not exists public.escuchando (
   usuario        uuid primary key references public.perfiles (id) on delete cascade,
