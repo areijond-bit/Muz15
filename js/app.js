@@ -2,7 +2,8 @@
 
 import {
   guardarCancion, listarCanciones, obtenerAudio, borrarCancion, pedirAlmacenamientoPersistente, espacioUsado,
-  listarListas, guardarLista, borrarLista, actualizarCancion, guardarOrden,
+  listarListas, guardarLista as guardarListaEnTelefono, borrarLista as borrarListaEnTelefono,
+  actualizarCancion, guardarOrden,
 } from './db.js';
 import { activarArrastre } from './arrastrar.js';
 import { leerMetadatos } from './metadatos.js';
@@ -57,6 +58,10 @@ const el = {
   reproducirLista: $('reproducir-lista'),
   cancionesLista: $('canciones-lista'),
   listaVacia: $('lista-vacia'),
+  listasPC: $('listas-pc'),
+  buscarListas: $('buscar-listas'),
+  estadoListasPC: $('estado-listas-pc'),
+  listasServidor: $('listas-servidor'),
 };
 
 // Para no dibujar miles de filas de golpe: con más resultados, hay que buscar.
@@ -437,6 +442,185 @@ function crearLista(cancionInicial) {
 
 /* ---------- Listas ---------- */
 
+/* ---------- Listas en tu servidor (iguales en todos lados) ---------- */
+// Cada lista se guarda en el teléfono Y como playlist en tu servidor Navidrome.
+// Así, en cualquier dispositivo, en Listas → "En Mi PC" aparecen todas y las
+// bajas con un toque. Las canciones que solo existen en el teléfono (importadas
+// a mano y que no están en C:\Music) no pueden ir en la copia del servidor.
+
+let playlistsServidor = [];
+const subidasPendientes = new Map(); // id de lista → temporizador
+
+/** Guarda la lista en el teléfono y, en un momento, también en tu servidor. */
+async function guardarLista(lista, { subir = true } = {}) {
+  await guardarListaEnTelefono(lista);
+  if (!subir || !servidor.configuracion()) return;
+  clearTimeout(subidasPendientes.get(lista.id));
+  // Esperamos un poco: si haces varios cambios seguidos, se sube una sola vez.
+  // Y nunca dos subidas de la misma lista a la vez: van en fila.
+  subidasPendientes.set(lista.id, setTimeout(() => {
+    const enFila = (subidasEnCurso.get(lista.id) ?? Promise.resolve()).then(() => subirLista(lista.id));
+    subidasEnCurso.set(lista.id, enFila);
+  }, 800));
+}
+const subidasEnCurso = new Map(); // id de lista → promesa de la subida en curso
+
+async function borrarLista(id) {
+  const lista = listas.find((l) => l.id === id);
+  await borrarListaEnTelefono(id);
+  if (lista?.idServidor && servidor.configuracion()) {
+    servidor.borrarPlaylist(lista.idServidor)
+      .then(() => cargarPlaylistsServidor())
+      .catch((error) => console.warn('No se pudo borrar la playlist en tu PC:', error.message));
+  }
+}
+
+async function asegurarBibliotecaServidor() {
+  if (!cancionesServidor.length) cancionesServidor = await servidor.listarCanciones();
+}
+
+/** El id en el servidor de una canción del teléfono (o de su gemela con el mismo título). */
+function idEnServidor(cancion) {
+  if (cancion.idServidor) return cancion.idServidor;
+  const clave = tituloBase(cancion.titulo);
+  const artista = ARTISTAS_DESCONOCIDOS.has(cancion.artista) ? null : normalizar(cancion.artista);
+  const gemela = cancionesServidor.find((s) => tituloBase(s.titulo) === clave
+    && (!artista || ARTISTAS_DESCONOCIDOS.has(s.artista) || normalizar(s.artista) === artista));
+  return gemela?.idServidor ?? null;
+}
+
+async function subirLista(id) {
+  subidasPendientes.delete(id);
+  const lista = (await listarListas()).find((l) => l.id === id);
+  if (!lista) return;
+  try {
+    await asegurarBibliotecaServidor();
+    let idsCanciones = cancionesDe(lista).map(idEnServidor).filter(Boolean);
+    let idDestino = lista.idServidor;
+    if (!idDestino) {
+      // ¿Ya existe allá una playlist con ese nombre (hecha desde otro dispositivo)?
+      // Entonces se juntan: primero lo que ya tenía, luego lo nuevo de aquí.
+      const mismoNombre = (await servidor.listarPlaylists()).find((p) => normalizar(p.nombre) === normalizar(lista.nombre));
+      if (mismoNombre) {
+        idDestino = mismoNombre.idServidor;
+        const yaEstaban = (await servidor.cancionesDePlaylist(idDestino)).map((c) => c.idServidor);
+        idsCanciones = [...new Set([...yaEstaban, ...idsCanciones])];
+      }
+    }
+    const idServidor = await servidor.guardarPlaylist({ idServidor: idDestino, nombre: lista.nombre, idsCanciones });
+    if (idServidor && idServidor !== lista.idServidor) {
+      // Releemos la lista: pudo cambiar mientras se subía (y ese cambio ya tiene su propia subida pendiente).
+      const ultima = (await listarListas()).find((l) => l.id === id);
+      if (ultima) await guardarListaEnTelefono({ ...ultima, idServidor });
+      const enMemoria = listas.find((l) => l.id === id);
+      if (enMemoria) enMemoria.idServidor = idServidor;
+    }
+    await cargarPlaylistsServidor();
+  } catch (error) {
+    console.warn('No se pudo guardar la lista en tu PC:', error.message);
+  }
+}
+
+async function cargarPlaylistsServidor() {
+  if (!servidor.configuracion()) {
+    el.listasPC.hidden = true;
+    return;
+  }
+  el.listasPC.hidden = false;
+  try {
+    playlistsServidor = await servidor.listarPlaylists();
+    el.estadoListasPC.textContent = '';
+  } catch (error) {
+    el.estadoListasPC.textContent = error.message;
+  }
+  pintarPlaylistsServidor();
+  subirListasSinCopia();
+}
+
+// Las listas hechas antes de esta función (o sin conexión) se suben una vez.
+let yaSeSubieronLasViejas = false;
+function subirListasSinCopia() {
+  if (yaSeSubieronLasViejas) return;
+  yaSeSubieronLasViejas = true;
+  for (const lista of listas) {
+    if (!lista.idServidor) subirLista(lista.id);
+  }
+}
+
+el.buscarListas.addEventListener('input', () => pintarPlaylistsServidor());
+
+function pintarPlaylistsServidor() {
+  const busqueda = normalizar(el.buscarListas.value.trim());
+  const visibles = playlistsServidor.filter((p) => !busqueda || normalizar(p.nombre).includes(busqueda));
+  if (!playlistsServidor.length && !el.estadoListasPC.textContent) {
+    el.estadoListasPC.textContent = 'Todavía no hay playlists en tu PC. Las que crees aquí se guardan allá solas.';
+  }
+  el.listasServidor.replaceChildren(...visibles.map((playlist) => {
+    const local = listas.find((l) => l.idServidor === playlist.idServidor);
+    const completa = local && cancionesDe(local).length >= playlist.total;
+    const boton = document.createElement('button');
+    boton.className = 'cancion__accion';
+    if (descargandoPlaylist.has(playlist.idServidor)) {
+      boton.textContent = '…';
+      boton.disabled = true;
+    } else if (completa) {
+      boton.textContent = '✓';
+      boton.classList.add('cancion__accion--hecha');
+      boton.setAttribute('aria-label', 'Ya está en este teléfono');
+    } else {
+      boton.textContent = local ? '⟳' : '⬇';
+      boton.setAttribute('aria-label', `Descargar playlist ${playlist.nombre}`);
+    }
+    boton.addEventListener('click', (evento) => {
+      evento.stopPropagation();
+      if (!completa) descargarPlaylist(playlist);
+    });
+    const portada = playlist.portadaId ? servidor.urlPortada({ portadaId: playlist.portadaId }, 96) : 'icons/portada.png';
+    return crearFila(
+      { id: `pl-${playlist.idServidor}`, titulo: playlist.nombre, artista: `${playlist.total} ${playlist.total === 1 ? 'canción' : 'canciones'}${local ? ' · en este teléfono' : ''}` },
+      portada,
+      boton,
+      () => (local ? (listaAbierta = local.id, pintarListas()) : descargarPlaylist(playlist)),
+    );
+  }));
+}
+
+const descargandoPlaylist = new Set();
+
+/** Baja las canciones que falten y arma (o pone al día) la lista en este teléfono. */
+async function descargarPlaylist(playlist) {
+  if (descargandoPlaylist.has(playlist.idServidor)) return;
+  descargandoPlaylist.add(playlist.idServidor);
+  pintarPlaylistsServidor();
+  const bloqueo = await navigator.wakeLock?.request('screen').catch(() => null);
+  try {
+    const canciones = await servidor.cancionesDePlaylist(playlist.idServidor);
+    const faltan = canciones.filter((c) => !localDe(c));
+    let fallidas = 0;
+    for (const [i, cancion] of faltan.entries()) {
+      mostrarAviso(`"${playlist.nombre}": descargando ${i + 1} de ${faltan.length}…`);
+      if (!await descargarDelServidor(cancion, { silencioso: true })) fallidas++;
+    }
+    await recargarLista();
+    const ids = canciones.map((c) => localDe(c)?.id).filter(Boolean);
+    const existente = listas.find((l) => l.idServidor === playlist.idServidor);
+    const lista = existente
+      ? { ...existente, nombre: playlist.nombre, canciones: ids }
+      : { id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`, nombre: playlist.nombre, canciones: ids, creada: Date.now(), idServidor: playlist.idServidor };
+    await guardarLista(lista, { subir: false }); // viene del servidor: no hace falta subirla
+    await recargarLista();
+    mostrarAviso(fallidas
+      ? `"${playlist.nombre}" lista, pero ${fallidas} canciones no se pudieron bajar. Toca ⟳ para reintentar.`
+      : `Playlist "${playlist.nombre}" descargada: ${ids.length} canciones.`, 5000);
+  } catch (error) {
+    mostrarAviso(`No se pudo descargar "${playlist.nombre}": ${error.message}`, 6000);
+  } finally {
+    bloqueo?.release();
+    descargandoPlaylist.delete(playlist.idServidor);
+    pintarPlaylistsServidor();
+  }
+}
+
 el.nuevaLista.addEventListener('click', () => crearLista(null));
 el.volverListas.addEventListener('click', () => { listaAbierta = null; pintarListas(); });
 
@@ -634,6 +818,7 @@ function mostrarVista(vista) {
   el.vistaListas.hidden = vista !== 'listas';
   el.vistaServidor.hidden = vista !== 'servidor';
   if (vista === 'servidor') abrirServidor();
+  if (vista === 'listas') cargarPlaylistsServidor();
 }
 
 /* ---------- Servidor ---------- */

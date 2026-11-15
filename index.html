@@ -64,8 +64,17 @@
     <section id="vista-listas" hidden>
       <div id="indice-listas">
         <button id="nueva-lista" class="boton boton--primario">+ Nueva lista</button>
+        <h2 class="seccion">En este teléfono</h2>
         <ul id="listas" class="lista"></ul>
         <p id="sin-listas" class="espacio">Crea una lista y agrégale canciones desde <strong>Descargadas</strong> con el botón ⋯.</p>
+
+        <!-- Todas tus playlists guardadas en tu servidor: las mismas en el cel y en la PC -->
+        <div id="listas-pc" hidden>
+          <h2 class="seccion">En Mi PC (todas tus playlists)</h2>
+          <input id="buscar-listas" class="campo__entrada buscador" type="search" placeholder="Buscar playlist por nombre" autocomplete="off">
+          <p id="estado-listas-pc" class="espacio"></p>
+          <ul id="listas-servidor" class="lista"></ul>
+        </div>
       </div>
 
       <div id="detalle-lista" hidden>

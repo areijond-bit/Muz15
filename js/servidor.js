@@ -52,6 +52,7 @@ export function desconectar() {
 
 /* ---------- Llamadas a la API ---------- */
 
+// "extra" puede traer listas (ej. songId: [a, b, c]): se repite el parámetro.
 function urlDe(metodo, extra = {}, datos = actual()) {
   const parametros = new URLSearchParams({
     u: datos.usuario,
@@ -60,8 +61,10 @@ function urlDe(metodo, extra = {}, datos = actual()) {
     v: VERSION_API,
     c: NOMBRE_CLIENTE,
     f: 'json',
-    ...extra,
   });
+  for (const [clave, valor] of Object.entries(extra)) {
+    for (const v of [valor].flat()) parametros.append(clave, v);
+  }
   return `${datos.url}/rest/${metodo}?${parametros}`;
 }
 
@@ -121,6 +124,48 @@ export async function listarCanciones() {
   }
   const comparar = (a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' });
   return todas.sort((a, b) => comparar(a.artista, b.artista) || comparar(a.titulo, b.titulo));
+}
+
+/* ---------- Playlists ---------- */
+// Viven en el servidor, así que son las mismas en el cel, la PC o donde abras Muz15.
+
+/** Todas las playlists, ordenadas por nombre. */
+export async function listarPlaylists() {
+  const json = await llamar('getPlaylists', {});
+  return (json.playlists?.playlist ?? [])
+    .map((p) => ({
+      idServidor: p.id,
+      nombre: p.name,
+      total: p.songCount ?? 0,
+      portadaId: p.coverArt ?? null,
+      cambiada: p.changed ?? null,
+    }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
+}
+
+/** Las canciones de una playlist, en su orden. */
+export async function cancionesDePlaylist(idServidor) {
+  const json = await llamar('getPlaylist', { id: idServidor });
+  return (json.playlist?.entry ?? []).map(aCancion);
+}
+
+/**
+ * Crea la playlist (si no trae idServidor) o reemplaza sus canciones y nombre.
+ * @returns {Promise<string>} el id de la playlist en el servidor
+ */
+export async function guardarPlaylist({ idServidor, nombre, idsCanciones }) {
+  if (!idServidor) {
+    const json = await llamar('createPlaylist', { name: nombre, songId: idsCanciones });
+    return json.playlist?.id ?? (await listarPlaylists()).find((p) => p.nombre === nombre)?.idServidor;
+  }
+  // Con playlistId, createPlaylist reemplaza todas las canciones en el nuevo orden.
+  await llamar('createPlaylist', { playlistId: idServidor, songId: idsCanciones });
+  await llamar('updatePlaylist', { playlistId: idServidor, name: nombre });
+  return idServidor;
+}
+
+export async function borrarPlaylist(idServidor) {
+  await llamar('deletePlaylist', { id: idServidor });
 }
 
 /** Dirección para escuchar la canción en vivo (sin descargarla). */

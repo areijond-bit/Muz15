@@ -510,6 +510,18 @@ button { font: inherit; color: inherit; }
 
 .casilla input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--color-acento); }
 
+/* Títulos de sección (Listas: "En este teléfono" / "En Mi PC") */
+.seccion {
+  margin: var(--espacio-l) 0 var(--espacio-s);
+  color: var(--color-texto-suave);
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+#listas-pc .buscador { margin-bottom: var(--espacio-s); }
+
 /* Lista de "Quitar repetidas" */
 .repetidas {
   list-style: none;
