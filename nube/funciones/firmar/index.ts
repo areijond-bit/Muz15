@@ -40,12 +40,14 @@ Deno.serve(async (pedido) => {
   if (pedido.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (pedido.method !== 'POST') return responder(405, { error: 'Solo POST' });
 
-  // ¿Quién eres? (la llave de tu sesión de Muz15)
-  const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, {
+  // ¿Quién eres? (la llave de tu sesión de Muzzy). Se usa la llave pública que manda
+  // la app ("apikey"), no la vieja SUPABASE_ANON_KEY que Supabase retira en 2027.
+  const llavePublica = pedido.headers.get('apikey') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+  const supabase = createClient(Deno.env.get('SUPABASE_URL')!, llavePublica, {
     global: { headers: { Authorization: pedido.headers.get('Authorization') ?? '' } },
   });
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return responder(401, { error: 'Necesitas entrar a Muz15' });
+  if (!user) return responder(401, { error: 'Necesitas entrar a Muzzy' });
 
   let datos: { clase?: string; huella?: string; tipo?: string; bytes?: number };
   try { datos = await pedido.json(); } catch { return responder(400, { error: 'Pedido inválido' }); }
