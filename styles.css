@@ -132,7 +132,11 @@ button { font: inherit; color: inherit; }
   display: flex;
   gap: var(--espacio-s);
   padding: 0 var(--espacio-m) var(--espacio-m);
+  overflow-x: auto;          /* si no caben en pantallas chicas, se deslizan */
+  scrollbar-width: none;
 }
+.pestanas::-webkit-scrollbar { display: none; }
+.pestana { flex-shrink: 0; }
 
 .pestana {
   padding: var(--espacio-s) var(--espacio-m);

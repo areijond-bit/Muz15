@@ -126,42 +126,75 @@ export async function listarCanciones() {
   return todas.sort((a, b) => comparar(a.artista, b.artista) || comparar(a.titulo, b.titulo));
 }
 
-/* ---------- Playlists ---------- */
-// Viven en el servidor, así que son las mismas en el cel, la PC o donde abras Muz15.
+/* ---------- Álbumes (playlists de Navidrome) ---------- */
+// Viven en el servidor, así que son los mismos en el cel, la PC o donde abras Muz15.
+// Los vínculos (⛓ "después de A siempre suena B") viajan en el comentario de la
+// playlist, con el formato  muz15:{"v":[["idA","idB"], ...]}
 
-/** Todas las playlists, ordenadas por nombre. */
+const PREFIJO_COMENTARIO = 'muz15:';
+
+/** Lee los vínculos guardados en el comentario: { idServidorA: idServidorB }. */
+function leerVinculos(comentario) {
+  if (!comentario?.startsWith(PREFIJO_COMENTARIO)) return {};
+  try {
+    return Object.fromEntries(JSON.parse(comentario.slice(PREFIJO_COMENTARIO.length)).v ?? []);
+  } catch {
+    return {};
+  }
+}
+
+const aAlbum = (p) => ({
+  idServidor: p.id,
+  nombre: p.name,
+  total: p.songCount ?? 0,
+  portadaId: p.coverArt ?? null,
+  publico: Boolean(p.public),
+  dueno: p.owner ?? '',
+  mio: !p.owner || p.owner === actual()?.usuario,
+});
+
+/** Todos los álbumes (los tuyos y los públicos de otros), ordenados por nombre. */
 export async function listarPlaylists() {
   const json = await llamar('getPlaylists', {});
   return (json.playlists?.playlist ?? [])
-    .map((p) => ({
-      idServidor: p.id,
-      nombre: p.name,
-      total: p.songCount ?? 0,
-      portadaId: p.coverArt ?? null,
-      cambiada: p.changed ?? null,
-    }))
+    .map(aAlbum)
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
 }
 
-/** Las canciones de una playlist, en su orden. */
+/** Un álbum completo: datos, canciones en orden y vínculos. */
+export async function obtenerPlaylist(idServidor) {
+  const { playlist } = await llamar('getPlaylist', { id: idServidor });
+  return { ...aAlbum(playlist), canciones: (playlist.entry ?? []).map(aCancion), vinculos: leerVinculos(playlist.comment) };
+}
+
+/** Las canciones de un álbum, en su orden. */
 export async function cancionesDePlaylist(idServidor) {
-  const json = await llamar('getPlaylist', { id: idServidor });
-  return (json.playlist?.entry ?? []).map(aCancion);
+  return (await obtenerPlaylist(idServidor)).canciones;
 }
 
 /**
- * Crea la playlist (si no trae idServidor) o reemplaza sus canciones y nombre.
- * @returns {Promise<string>} el id de la playlist en el servidor
+ * Crea el álbum (si no trae idServidor) o reemplaza sus canciones, nombre,
+ * vínculos y si es público.
+ * @param {{idServidor?: string, nombre: string, idsCanciones: string[], vinculos?: Object<string,string>, publico?: boolean}} album
+ * @returns {Promise<string>} el id del álbum en el servidor
  */
-export async function guardarPlaylist({ idServidor, nombre, idsCanciones }) {
-  if (!idServidor) {
+export async function guardarPlaylist({ idServidor, nombre, idsCanciones, vinculos = {}, publico = false }) {
+  let id = idServidor;
+  if (!id) {
     const json = await llamar('createPlaylist', { name: nombre, songId: idsCanciones });
-    return json.playlist?.id ?? (await listarPlaylists()).find((p) => p.nombre === nombre)?.idServidor;
+    id = json.playlist?.id ?? (await listarPlaylists()).find((p) => p.nombre === nombre)?.idServidor;
+  } else {
+    // Con playlistId, createPlaylist reemplaza todas las canciones en el nuevo orden.
+    await llamar('createPlaylist', { playlistId: id, songId: idsCanciones });
   }
-  // Con playlistId, createPlaylist reemplaza todas las canciones en el nuevo orden.
-  await llamar('createPlaylist', { playlistId: idServidor, songId: idsCanciones });
-  await llamar('updatePlaylist', { playlistId: idServidor, name: nombre });
-  return idServidor;
+  const pares = Object.entries(vinculos);
+  await llamar('updatePlaylist', {
+    playlistId: id,
+    name: nombre,
+    public: String(publico),
+    comment: pares.length ? PREFIJO_COMENTARIO + JSON.stringify({ v: pares }) : '',
+  });
+  return id;
 }
 
 export async function borrarPlaylist(idServidor) {

@@ -59,6 +59,7 @@ const el = {
   cancionesLista: $('canciones-lista'),
   listaVacia: $('lista-vacia'),
   listasPC: $('listas-pc'),
+  tituloListasTelefono: $('titulo-listas-telefono'),
   buscarListas: $('buscar-listas'),
   estadoListasPC: $('estado-listas-pc'),
   listasServidor: $('listas-servidor'),
@@ -204,11 +205,68 @@ async function portadaDeImagen(archivo) {
 async function recargarLista() {
   [cancionesLocales, listas] = await Promise.all([listarCanciones(), listarListas()]);
   liberarPortadasHuerfanas();
-  reproductor.refrescar(cancionesLocales); // por si cambiaron títulos o vínculos
+  // Por si cambiaron títulos, orden o vínculos de lo que está sonando.
+  const listaSonando = listas.find((l) => l.id === listaQueSuena);
+  reproductor.refrescar(listaSonando ? cancionesParaReproducir(listaSonando) : cancionesLocales);
   pintarLista(cancionesLocales);
   pintarListas();
   pintarEspacio();
   if (cancionesServidor.length) pintarListaServidor(); // actualiza los ✓ de descargadas
+  programarRespaldo();
+}
+
+/* ---------- Respaldo de tus descargas en tu PC ---------- */
+// Cada dispositivo guarda en tu servidor una lista privada y oculta con lo que
+// tiene descargado ("Muz15 · Descargas (…)"). Si un día este teléfono aparece
+// vacío (por la razón que sea), Muz15 ofrece bajarlo todo de nuevo con un toque.
+
+const PREFIJO_RESPALDO = 'Muz15 · Descargas';
+const esRespaldo = (album) => album.nombre.startsWith(PREFIJO_RESPALDO);
+const modeloTelefono = navigator.userAgent.match(/Android [^;)]+; ([^;)]+?)(?: Build|\))/)?.[1]?.trim();
+const nombreRespaldo = `${PREFIJO_RESPALDO} (${[modeloTelefono, esApk ? 'APK' : 'navegador'].filter(Boolean).join(' · ')})`;
+let temporizadorRespaldo;
+
+function programarRespaldo() {
+  clearTimeout(temporizadorRespaldo);
+  temporizadorRespaldo = setTimeout(respaldarDescargas, 3000);
+}
+
+async function respaldarDescargas() {
+  const ids = cancionesLocales.map((c) => c.idServidor).filter(Boolean);
+  // Nunca guardamos un respaldo vacío: si el teléfono quedó vacío, el respaldo
+  // anterior es justo lo que sirve para recuperarlo.
+  if (!ids.length || !servidor.configuracion()) return;
+  try {
+    const existente = (await servidor.listarPlaylists()).find((p) => p.nombre === nombreRespaldo);
+    await servidor.guardarPlaylist({ idServidor: existente?.idServidor, nombre: nombreRespaldo, idsCanciones: ids, publico: false });
+  } catch (error) {
+    console.warn('No se pudo respaldar la lista de descargas:', error.message);
+  }
+}
+
+/** Si este teléfono no tiene canciones pero hay un respaldo en tu PC, ofrece recuperarlas. */
+async function ofrecerRecuperacion() {
+  if (cancionesLocales.length || !servidor.configuracion()) return;
+  try {
+    const respaldos = (await servidor.listarPlaylists()).filter((p) => esRespaldo(p) && p.total > 0);
+    if (!respaldos.length) return;
+    // El de este mismo dispositivo primero; si no, el más grande.
+    respaldos.sort((a, b) => (b.nombre === nombreRespaldo) - (a.nombre === nombreRespaldo) || b.total - a.total);
+    abrirHoja({
+      titulo: 'Este teléfono no tiene canciones',
+      subtitulo: 'Tu PC guardó la lista de lo que tenías descargado. ¿Lo bajo todo de nuevo?',
+      acciones: respaldos.map((r) => ({
+        texto: `⬇ Recuperar ${r.total} canciones — ${r.nombre.replace(PREFIJO_RESPALDO, '').trim() || 'respaldo'}`,
+        alElegir: async () => {
+          const canciones = await servidor.cancionesDePlaylist(r.idServidor);
+          await asegurarBibliotecaServidor();
+          descargarVarias(canciones.filter((c) => !localDe(c)));
+        },
+      })),
+    });
+  } catch (error) {
+    console.warn('No se pudo revisar el respaldo:', error.message);
+  }
 }
 
 /** La copia guardada en el teléfono de una canción del servidor, si existe. */
@@ -220,7 +278,7 @@ function pintarLista(canciones) {
   el.vacio.hidden = canciones.length > 0;
   el.lista.replaceChildren(...canciones.map((cancion, i) => {
     const menu = botonMenu(cancion, () => menuCancion(cancion));
-    return crearFila(cancion, urlDePortada(cancion), menu, () => reproductor.reproducirLista(cancionesLocales, i), { arrastrable: true });
+    return crearFila(cancion, urlDePortada(cancion), menu, () => { listaQueSuena = null; reproductor.reproducirLista(cancionesLocales, i); }, { arrastrable: true });
   }));
 
   marcarSonando(reproductor.estado().cancion);
@@ -246,7 +304,7 @@ function menuCancion(cancion) {
     titulo: cancion.titulo,
     subtitulo: cancion.artista,
     acciones: [
-      { texto: '+ Agregar a una lista', alElegir: () => elegirLista(cancion) },
+      { texto: '+ Agregar a playlist o álbum', alElegir: () => elegirLista(cancion) },
       { texto: '✎ Editar título, artista y portada', alElegir: () => editarCancion(cancion) },
       cancion.siguienteFija && porId(cancion.siguienteFija)
         ? { texto: `⛓ Quitar vínculo con "${porId(cancion.siguienteFija).titulo}"`, alElegir: () => vincular(cancion, null) }
@@ -270,14 +328,23 @@ function menuCancion(cancion) {
   });
 }
 
+/* Dos tipos de lista:
+ *  💿 Álbum:    se guarda también en tu servidor → igual en todos tus dispositivos.
+ *  🎵 Playlist: solo de este teléfono, con tus canciones descargadas.
+ * Las listas de antes (sin tipo) son álbumes. */
+const esPlaylist = (lista) => lista.tipo === 'playlist';
+const iconoLista = (lista) => (esPlaylist(lista) ? '🎵' : '💿');
+const nombreTipo = (lista) => (esPlaylist(lista) ? 'playlist' : 'álbum');
+
 function elegirLista(cancion) {
   abrirHoja({
-    titulo: 'Agregar a una lista',
+    titulo: 'Agregar a…',
     subtitulo: cancion.titulo,
     acciones: [
-      { texto: '+ Nueva lista', alElegir: () => crearLista(cancion) },
+      { texto: '+ Nueva playlist (solo este teléfono)', alElegir: () => crearLista(cancion, 'playlist') },
+      { texto: '+ Nuevo álbum (en todos tus dispositivos)', alElegir: () => crearLista(cancion, 'album') },
       ...listas.map((lista) => ({
-        texto: lista.canciones.includes(cancion.id) ? `${lista.nombre}  ✓` : lista.nombre,
+        texto: `${iconoLista(lista)} ${lista.nombre}${lista.canciones.includes(cancion.id) ? '  ✓' : ''}`,
         alElegir: () => agregarALista(lista, cancion),
       })),
     ],
@@ -418,35 +485,44 @@ async function agregarALista(lista, cancion) {
   mostrarAviso(`Agregada a "${lista.nombre}".`, 3000);
 }
 
-/** Pide un nombre y crea la lista (con una canción adentro, si se da). */
-function crearLista(cancionInicial) {
+/**
+ * Pide un nombre y crea un álbum o una playlist (con una canción adentro, si se da).
+ * @param {'album' | 'playlist'} tipo
+ */
+function crearLista(cancionInicial, tipo = 'album') {
+  const palabra = tipo === 'playlist' ? 'playlist' : 'álbum';
   abrirHoja({
-    titulo: 'Nueva lista',
+    titulo: tipo === 'playlist' ? 'Nueva playlist' : 'Nuevo álbum',
+    subtitulo: tipo === 'playlist'
+      ? 'Solo en este teléfono, con tus canciones descargadas.'
+      : 'Se guarda en tu PC: lo verás en todos tus dispositivos.',
     entrada: {
       placeholder: 'Nombre (ej. Para el carro)',
-      textoBoton: 'Crear lista',
+      textoBoton: tipo === 'playlist' ? 'Crear playlist' : 'Crear álbum',
       alAceptar: async (nombre) => {
         const lista = {
           id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+          tipo,
           nombre,
           canciones: cancionInicial ? [cancionInicial.id] : [],
+          vinculos: {},
+          publico: false,
           creada: Date.now(),
         };
         await guardarLista(lista);
         await recargarLista();
-        mostrarAviso(cancionInicial ? `Lista "${nombre}" creada con "${cancionInicial.titulo}".` : `Lista "${nombre}" creada.`, 3000);
+        mostrarAviso(cancionInicial ? `${palabra[0].toUpperCase() + palabra.slice(1)} "${nombre}" creado con "${cancionInicial.titulo}".` : `"${nombre}" creado.`, 3000);
       },
     },
   });
 }
 
-/* ---------- Listas ---------- */
-
-/* ---------- Listas en tu servidor (iguales en todos lados) ---------- */
-// Cada lista se guarda en el teléfono Y como playlist en tu servidor Navidrome.
-// Así, en cualquier dispositivo, en Listas → "En Mi PC" aparecen todas y las
-// bajas con un toque. Las canciones que solo existen en el teléfono (importadas
-// a mano y que no están en C:\Music) no pueden ir en la copia del servidor.
+/* ---------- Álbumes en tu servidor (iguales en todos lados) ---------- */
+// Cada álbum se guarda en el teléfono Y como playlist en tu servidor Navidrome.
+// Así, en cualquier dispositivo, en Álbumes → "En Mi PC" aparecen todos y los
+// bajas con un toque. Las playlists (🎵) son solo del teléfono y no se suben.
+// Las canciones que solo existen en el teléfono (importadas a mano y que no
+// están en C:\Music) no pueden ir en la copia del servidor.
 
 let playlistsServidor = [];
 const subidasPendientes = new Map(); // id de lista → temporizador
@@ -454,7 +530,7 @@ const subidasPendientes = new Map(); // id de lista → temporizador
 /** Guarda la lista en el teléfono y, en un momento, también en tu servidor. */
 async function guardarLista(lista, { subir = true } = {}) {
   await guardarListaEnTelefono(lista);
-  if (!subir || !servidor.configuracion()) return;
+  if (!subir || esPlaylist(lista) || !servidor.configuracion()) return; // las playlists no se suben
   clearTimeout(subidasPendientes.get(lista.id));
   // Esperamos un poco: si haces varios cambios seguidos, se sube una sola vez.
   // Y nunca dos subidas de la misma lista a la vez: van en fila.
@@ -492,10 +568,16 @@ function idEnServidor(cancion) {
 async function subirLista(id) {
   subidasPendientes.delete(id);
   const lista = (await listarListas()).find((l) => l.id === id);
-  if (!lista) return;
+  if (!lista || esPlaylist(lista)) return;
   try {
     await asegurarBibliotecaServidor();
     let idsCanciones = cancionesDe(lista).map(idEnServidor).filter(Boolean);
+    // Los vínculos del álbum, con los ids del servidor.
+    const vinculos = {};
+    for (const [a, b] of Object.entries(lista.vinculos ?? {})) {
+      const [ida, idb] = [porId(a), porId(b)].map((c) => c && idEnServidor(c));
+      if (ida && idb) vinculos[ida] = idb;
+    }
     let idDestino = lista.idServidor;
     if (!idDestino) {
       // ¿Ya existe allá una playlist con ese nombre (hecha desde otro dispositivo)?
@@ -507,7 +589,9 @@ async function subirLista(id) {
         idsCanciones = [...new Set([...yaEstaban, ...idsCanciones])];
       }
     }
-    const idServidor = await servidor.guardarPlaylist({ idServidor: idDestino, nombre: lista.nombre, idsCanciones });
+    const idServidor = await servidor.guardarPlaylist({
+      idServidor: idDestino, nombre: lista.nombre, idsCanciones, vinculos, publico: Boolean(lista.publico),
+    });
     if (idServidor && idServidor !== lista.idServidor) {
       // Releemos la lista: pudo cambiar mientras se subía (y ese cambio ya tiene su propia subida pendiente).
       const ultima = (await listarListas()).find((l) => l.id === id);
@@ -522,13 +606,13 @@ async function subirLista(id) {
 }
 
 async function cargarPlaylistsServidor() {
-  if (!servidor.configuracion()) {
+  if (!servidor.configuracion() || tipoVista === 'playlist') {
     el.listasPC.hidden = true;
     return;
   }
   el.listasPC.hidden = false;
   try {
-    playlistsServidor = await servidor.listarPlaylists();
+    playlistsServidor = (await servidor.listarPlaylists()).filter((p) => !esRespaldo(p)); // los respaldos van ocultos
     el.estadoListasPC.textContent = '';
   } catch (error) {
     el.estadoListasPC.textContent = error.message;
@@ -543,7 +627,7 @@ function subirListasSinCopia() {
   if (yaSeSubieronLasViejas) return;
   yaSeSubieronLasViejas = true;
   for (const lista of listas) {
-    if (!lista.idServidor) subirLista(lista.id);
+    if (!lista.idServidor && !esPlaylist(lista)) subirLista(lista.id);
   }
 }
 
@@ -553,7 +637,7 @@ function pintarPlaylistsServidor() {
   const busqueda = normalizar(el.buscarListas.value.trim());
   const visibles = playlistsServidor.filter((p) => !busqueda || normalizar(p.nombre).includes(busqueda));
   if (!playlistsServidor.length && !el.estadoListasPC.textContent) {
-    el.estadoListasPC.textContent = 'Todavía no hay playlists en tu PC. Las que crees aquí se guardan allá solas.';
+    el.estadoListasPC.textContent = 'Todavía no hay álbumes en tu PC. Los que crees aquí se guardan allá solos.';
   }
   el.listasServidor.replaceChildren(...visibles.map((playlist) => {
     const local = listas.find((l) => l.idServidor === playlist.idServidor);
@@ -576,8 +660,14 @@ function pintarPlaylistsServidor() {
       if (!completa) descargarPlaylist(playlist);
     });
     const portada = playlist.portadaId ? servidor.urlPortada({ portadaId: playlist.portadaId }, 96) : 'icons/portada.png';
+    const detalles = [
+      playlist.publico ? '🌐 Público' : '🔒 Privado',
+      `${playlist.total} ${playlist.total === 1 ? 'canción' : 'canciones'}`,
+      playlist.mio ? '' : `de ${playlist.dueno}`,
+      local ? 'en este teléfono' : '',
+    ].filter(Boolean).join(' · ');
     return crearFila(
-      { id: `pl-${playlist.idServidor}`, titulo: playlist.nombre, artista: `${playlist.total} ${playlist.total === 1 ? 'canción' : 'canciones'}${local ? ' · en este teléfono' : ''}` },
+      { id: `pl-${playlist.idServidor}`, titulo: playlist.nombre, artista: detalles },
       portada,
       boton,
       () => (local ? (listaAbierta = local.id, pintarListas()) : descargarPlaylist(playlist)),
@@ -594,7 +684,8 @@ async function descargarPlaylist(playlist) {
   pintarPlaylistsServidor();
   const bloqueo = await navigator.wakeLock?.request('screen').catch(() => null);
   try {
-    const canciones = await servidor.cancionesDePlaylist(playlist.idServidor);
+    const completo = await servidor.obtenerPlaylist(playlist.idServidor);
+    const canciones = completo.canciones;
     const faltan = canciones.filter((c) => !localDe(c));
     let fallidas = 0;
     for (const [i, cancion] of faltan.entries()) {
@@ -602,16 +693,23 @@ async function descargarPlaylist(playlist) {
       if (!await descargarDelServidor(cancion, { silencioso: true })) fallidas++;
     }
     await recargarLista();
-    const ids = canciones.map((c) => localDe(c)?.id).filter(Boolean);
+    // Ids del servidor → canciones de este teléfono (para el orden y los vínculos).
+    const local = (idServidor) => cancionesLocales.find((c) => c.idServidor === idServidor);
+    const ids = canciones.map((c) => local(c.idServidor)?.id).filter(Boolean);
+    const vinculos = {};
+    for (const [a, b] of Object.entries(completo.vinculos)) {
+      if (local(a) && local(b)) vinculos[local(a).id] = local(b).id;
+    }
+    const datos = { tipo: 'album', nombre: completo.nombre, canciones: ids, vinculos, publico: completo.publico, idServidor: playlist.idServidor };
     const existente = listas.find((l) => l.idServidor === playlist.idServidor);
     const lista = existente
-      ? { ...existente, nombre: playlist.nombre, canciones: ids }
-      : { id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`, nombre: playlist.nombre, canciones: ids, creada: Date.now(), idServidor: playlist.idServidor };
+      ? { ...existente, ...datos }
+      : { id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`, creada: Date.now(), ...datos };
     await guardarLista(lista, { subir: false }); // viene del servidor: no hace falta subirla
     await recargarLista();
     mostrarAviso(fallidas
-      ? `"${playlist.nombre}" lista, pero ${fallidas} canciones no se pudieron bajar. Toca ⟳ para reintentar.`
-      : `Playlist "${playlist.nombre}" descargada: ${ids.length} canciones.`, 5000);
+      ? `"${completo.nombre}" listo, pero ${fallidas} canciones no se pudieron bajar. Toca ⟳ para reintentar.`
+      : `Álbum "${completo.nombre}" descargado: ${ids.length} canciones (ya están en Descargadas).`, 5000);
   } catch (error) {
     mostrarAviso(`No se pudo descargar "${playlist.nombre}": ${error.message}`, 6000);
   } finally {
@@ -621,12 +719,31 @@ async function descargarPlaylist(playlist) {
   }
 }
 
-el.nuevaLista.addEventListener('click', () => crearLista(null));
+// Qué pestaña se está viendo: 'album' (💿 Álbumes) o 'playlist' (🎵 Playlists).
+let tipoVista = 'album';
+// De dónde viene lo que suena: id de una lista, o null (Descargadas / Mi PC).
+let listaQueSuena = null;
+
+el.nuevaLista.addEventListener('click', () => crearLista(null, tipoVista));
 el.volverListas.addEventListener('click', () => { listaAbierta = null; pintarListas(); });
 
 /** Las canciones de una lista, en su orden (ignorando las que ya no existen). */
 function cancionesDe(lista) {
   return lista.canciones.map((id) => cancionesLocales.find((c) => c.id === id)).filter(Boolean);
+}
+
+/**
+ * Las canciones de una lista listas para sonar: con los vínculos (⛓) de ESA
+ * lista. Si la lista no dice nada de una canción, vale su vínculo de Descargadas.
+ */
+function cancionesParaReproducir(lista) {
+  const propios = lista.vinculos ?? {};
+  return cancionesDe(lista).map((c) => (c.id in propios ? { ...c, siguienteFija: propios[c.id] } : c));
+}
+
+function reproducirDeLista(lista, desde) {
+  listaQueSuena = lista.id;
+  reproductor.reproducirLista(cancionesParaReproducir(lista), desde);
 }
 
 function pintarListas() {
@@ -636,33 +753,91 @@ function pintarListas() {
   el.detalleLista.hidden = !abierta;
 
   if (!abierta) {
-    el.sinListas.hidden = listas.length > 0;
-    el.listas.replaceChildren(...listas.map((lista) => {
+    const delTipo = listas.filter((l) => (tipoVista === 'playlist') === esPlaylist(l));
+    el.nuevaLista.textContent = tipoVista === 'playlist' ? '+ Nueva playlist' : '+ Nuevo álbum';
+    el.tituloListasTelefono.textContent = tipoVista === 'playlist' ? 'Tus playlists (solo este teléfono)' : 'Álbumes en este teléfono';
+    el.sinListas.innerHTML = tipoVista === 'playlist'
+      ? 'Arma playlists con tus canciones de <strong>Descargadas</strong> (⋯ → Agregar a playlist o álbum). Solo viven en este teléfono.'
+      : 'Los álbumes se guardan en tu PC y los ves en todos tus dispositivos. Crea uno o descarga los de abajo.';
+    el.sinListas.hidden = delTipo.length > 0;
+    el.listas.replaceChildren(...delTipo.map((lista) => {
       const canciones = cancionesDe(lista);
-      const fila = crearFila(
-        { id: lista.id, titulo: lista.nombre, artista: `${canciones.length} ${canciones.length === 1 ? 'canción' : 'canciones'}` },
+      const detalles = [`${canciones.length} ${canciones.length === 1 ? 'canción' : 'canciones'}`];
+      if (!esPlaylist(lista)) detalles.unshift(lista.publico ? '🌐 Público' : '🔒 Privado');
+      return crearFila(
+        { id: lista.id, titulo: `${iconoLista(lista)} ${lista.nombre}`, artista: detalles.join(' · ') },
         canciones[0] ? urlDePortada(canciones[0]) : 'icons/portada.png',
         botonMenu({ titulo: lista.nombre }, () => menuLista(lista)),
         () => { listaAbierta = lista.id; pintarListas(); },
       );
-      return fila;
     }));
     return;
   }
 
-  const canciones = cancionesDe(abierta);
-  el.nombreLista.textContent = abierta.nombre;
+  const canciones = cancionesParaReproducir(abierta);
+  el.nombreLista.textContent = `${iconoLista(abierta)} ${abierta.nombre}`;
   el.listaVacia.hidden = canciones.length > 0;
   el.reproducirLista.disabled = canciones.length === 0;
   el.cancionesLista.replaceChildren(...canciones.map((cancion, i) => {
-    const menu = botonMenu(cancion, () => abrirHoja({
-      titulo: cancion.titulo,
-      subtitulo: cancion.artista,
-      acciones: [{ texto: `Quitar de "${abierta.nombre}"`, alElegir: () => quitarDeLista(abierta, cancion) }],
-    }));
-    return crearFila(cancion, urlDePortada(cancion), menu, () => reproductor.reproducirLista(canciones, i), { arrastrable: true });
+    const menu = botonMenu(cancion, () => menuCancionEnLista(abierta, cancion));
+    return crearFila(cancion, urlDePortada(cancion), menu, () => reproducirDeLista(abierta, i), { arrastrable: true });
   }));
   marcarSonando(reproductor.estado().cancion);
+}
+
+/* ---------- Vincular dentro de un álbum o playlist ---------- */
+
+function menuCancionEnLista(lista, cancion) {
+  const siguiente = porId(lista.vinculos?.[cancion.id]);
+  abrirHoja({
+    titulo: cancion.titulo,
+    subtitulo: cancion.artista,
+    acciones: [
+      siguiente
+        ? { texto: `⛓ Quitar vínculo con "${siguiente.titulo}"`, alElegir: () => vincularEnLista(lista, cancion, null) }
+        : { texto: `⛓ Vincular en este ${nombreTipo(lista)}: que siempre siga otra`, alElegir: () => elegirVinculoEnLista(lista, cancion) },
+      { texto: '✎ Editar título, artista y portada', alElegir: () => editarCancion(cancion) },
+      { texto: `Quitar de "${lista.nombre}"`, alElegir: () => quitarDeLista(lista, cancion) },
+    ],
+  });
+}
+
+function elegirVinculoEnLista(lista, cancion) {
+  const vinculos = lista.vinculos ?? {};
+  // ¿Siguiendo los vínculos desde "desde" se llega a "cancion"? (para no hacer círculos)
+  const llegaA = (desde) => {
+    const vistos = new Set();
+    for (let id = desde; id && !vistos.has(id); id = vinculos[id]) {
+      if (id === cancion.id) return true;
+      vistos.add(id);
+    }
+    return false;
+  };
+  const opciones = cancionesDe(lista).filter((c) => c.id !== cancion.id && !llegaA(c.id));
+  abrirHoja({
+    titulo: '¿Qué canción va después?',
+    subtitulo: `En "${lista.nombre}", después de "${cancion.titulo}" siempre sonará la que elijas.`,
+    acciones: opciones.map((otra) => ({
+      texto: `${otra.titulo} — ${otra.artista}`,
+      alElegir: () => vincularEnLista(lista, cancion, otra),
+    })),
+  });
+}
+
+async function vincularEnLista(lista, cancion, siguiente) {
+  const vinculos = { ...(lista.vinculos ?? {}) };
+  if (siguiente) {
+    // Una canción solo va pegada detrás de una: si ya tenía otra antes, se suelta.
+    for (const [a, b] of Object.entries(vinculos)) if (b === siguiente.id) delete vinculos[a];
+    vinculos[cancion.id] = siguiente.id;
+  } else {
+    delete vinculos[cancion.id];
+  }
+  await guardarLista({ ...lista, vinculos });
+  await recargarLista();
+  mostrarAviso(siguiente
+    ? `En "${lista.nombre}": después de "${cancion.titulo}" siempre sonará "${siguiente.titulo}".`
+    : `Se quitó el vínculo de "${cancion.titulo}" en "${lista.nombre}".`, 4000);
 }
 
 /* ---------- Acomodar arrastrando ---------- */
@@ -679,14 +854,11 @@ activarArrastre(el.cancionesLista, async (ids) => {
   const resto = lista.canciones.filter((id) => !ids.includes(id));
   await guardarLista({ ...lista, canciones: [...ids, ...resto] });
   await recargarLista();
-  const actualizada = listas.find((l) => l.id === listaAbierta);
-  if (actualizada) reproductor.refrescar(cancionesDe(actualizada));
 });
 
 el.reproducirLista.addEventListener('click', () => {
   const lista = listas.find((l) => l.id === listaAbierta);
-  const canciones = lista ? cancionesDe(lista) : [];
-  if (canciones.length) reproductor.reproducirLista(canciones, 0);
+  if (lista && cancionesDe(lista).length) reproducirDeLista(lista, 0);
 });
 
 el.opcionesLista.addEventListener('click', () => {
@@ -700,15 +872,39 @@ async function quitarDeLista(lista, cancion) {
 }
 
 function menuLista(lista) {
+  const palabra = nombreTipo(lista);
+  const publicoPrivado = esPlaylist(lista) ? [] : [{
+    texto: lista.publico
+      ? '🔒 Hacer privado (solo tú lo ves)'
+      : '🌐 Hacer público (lo ve cualquiera con cuenta en tu Navidrome)',
+    alElegir: async () => {
+      await guardarLista({ ...lista, publico: !lista.publico });
+      await recargarLista();
+      mostrarAviso(lista.publico ? `"${lista.nombre}" ahora es privado.` : `"${lista.nombre}" ahora es público.`, 3000);
+    },
+  }];
+  // Un álbum se puede quitar solo de este teléfono y seguir en tu PC y tus otros dispositivos.
+  const quitarDeAqui = esPlaylist(lista) || !lista.idServidor ? [] : [{
+    texto: 'Quitar de este teléfono (sigue en tu PC)',
+    alElegir: async () => {
+      await borrarListaEnTelefono(lista.id);
+      if (listaAbierta === lista.id) listaAbierta = null;
+      await recargarLista();
+      mostrarAviso(`"${lista.nombre}" se quitó de este teléfono. Lo puedes volver a bajar desde "En Mi PC".`, 4000);
+    },
+  }];
   abrirHoja({
-    titulo: lista.nombre,
+    titulo: `${iconoLista(lista)} ${lista.nombre}`,
+    subtitulo: esPlaylist(lista) ? 'Playlist: solo en este teléfono.' : `Álbum: está en tu PC · ${lista.publico ? 'público' : 'privado'}.`,
     acciones: [
+      ...publicoPrivado,
+      ...quitarDeAqui,
       {
         texto: 'Cambiar nombre',
         alElegir: () => abrirHoja({
           titulo: 'Cambiar nombre',
           entrada: {
-            placeholder: 'Nombre de la lista',
+            placeholder: `Nombre del ${palabra}`,
             valor: lista.nombre,
             textoBoton: 'Guardar',
             alAceptar: async (nombre) => {
@@ -719,12 +915,14 @@ function menuLista(lista) {
         }),
       },
       {
-        texto: 'Borrar lista',
+        texto: `Borrar ${palabra}`,
         peligro: true,
         alElegir: () => confirmar({
-          titulo: `¿Borrar la lista "${lista.nombre}"?`,
-          subtitulo: 'Las canciones se quedan en Descargadas.',
-          textoBoton: 'Borrar lista',
+          titulo: `¿Borrar ${esPlaylist(lista) ? 'la playlist' : 'el álbum'} "${lista.nombre}"?`,
+          subtitulo: esPlaylist(lista)
+            ? 'Las canciones se quedan en Descargadas.'
+            : 'Se borra también de tu PC y de tus otros dispositivos. Las canciones se quedan en Descargadas.',
+          textoBoton: `Borrar ${palabra}`,
           alConfirmar: async () => {
             await borrarLista(lista.id);
             if (listaAbierta === lista.id) listaAbierta = null;
@@ -815,10 +1013,16 @@ function mostrarVista(vista) {
     pestana.classList.toggle('pestana--activa', pestana.dataset.vista === vista);
   }
   el.vistaTelefono.hidden = vista !== 'telefono';
-  el.vistaListas.hidden = vista !== 'listas';
+  el.vistaListas.hidden = vista !== 'listas' && vista !== 'playlists';
   el.vistaServidor.hidden = vista !== 'servidor';
   if (vista === 'servidor') abrirServidor();
-  if (vista === 'listas') cargarPlaylistsServidor();
+  if (vista === 'listas' || vista === 'playlists') {
+    const tipo = vista === 'playlists' ? 'playlist' : 'album';
+    if (tipo !== tipoVista) listaAbierta = null; // cambiaste de pestaña: vuelve al índice
+    tipoVista = tipo;
+    pintarListas();
+    cargarPlaylistsServidor();
+  }
 }
 
 /* ---------- Servidor ---------- */
@@ -844,6 +1048,7 @@ el.formServidor.addEventListener('submit', async (evento) => {
     el.servidorContrasena.value = '';
     mostrarAviso('Conectado a tu servidor.', 3000);
     abrirServidor();
+    ofrecerRecuperacion();
   } catch (error) {
     mostrarAviso(error.message, 6000);
   } finally {
@@ -891,7 +1096,7 @@ function pintarListaServidor() {
   el.listaServidor.replaceChildren(...enPantalla.map((cancion, i) => {
     const boton = botonDescarga(cancion);
     return crearFila(cancion, servidor.urlPortada(cancion, 96) ?? 'icons/portada.png', boton,
-      () => reproductor.reproducirLista(visiblesServidor, i));
+      () => { listaQueSuena = null; reproductor.reproducirLista(visiblesServidor, i); });
   }));
 
   const total = cancionesServidor.length;
@@ -1219,7 +1424,9 @@ try {
 } catch { /* nada */ }
 
 el.ajustes.addEventListener('click', () => {
-  const version = versionApk ? `Muz15 APK ${versionApk.nombre}` : undefined;
+  // Para saber en cuál Muz15 estás: la APK y la de Chrome guardan canciones por separado.
+  const donde = esApk ? `APK ${versionApk?.nombre ?? ''}`.trim() : 'Navegador (no es la APK)';
+  const version = `Estás en: ${donde} · ${cancionesLocales.length} canciones guardadas aquí`;
   abrirHoja({
     titulo: 'Ajustes',
     subtitulo: version,
@@ -1298,10 +1505,14 @@ async function borrarRepetidas(repetidas, total) {
   for (const { queda, sobran } of repetidas) {
     const idsSobran = new Set(sobran.map((c) => c.id));
     // Las listas apuntan ahora a la copia que se queda (sin repetirla en la lista).
+    const cambiar = (id) => (idsSobran.has(id) ? queda.id : id);
     for (const lista of listas) {
-      if (!lista.canciones.some((id) => idsSobran.has(id))) continue;
+      const vinculos = Object.entries(lista.vinculos ?? {});
+      const tocaVinculos = vinculos.some(([a, b]) => idsSobran.has(a) || idsSobran.has(b));
+      if (!lista.canciones.some((id) => idsSobran.has(id)) && !tocaVinculos) continue;
       // También en memoria, para que el siguiente grupo parta de la lista ya corregida.
-      lista.canciones = [...new Set(lista.canciones.map((id) => (idsSobran.has(id) ? queda.id : id)))];
+      lista.canciones = [...new Set(lista.canciones.map(cambiar))];
+      lista.vinculos = Object.fromEntries(vinculos.map(([a, b]) => [cambiar(a), cambiar(b)]).filter(([a, b]) => a !== b));
       await guardarLista({ ...lista });
     }
     // Y los vínculos también.
@@ -1509,7 +1720,30 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-recargarLista().catch((error) => {
-  console.error(error);
-  mostrarAviso(`No se pudo abrir la biblioteca: ${error.message}`);
-});
+// Pide al sistema que nunca borre las canciones guardadas por falta de espacio.
+pedirAlmacenamientoPersistente();
+
+recargarLista()
+  .then(() => {
+    ofrecerRecuperacion();
+    avisarSiEsLaVersionDeChrome();
+  })
+  .catch((error) => {
+    console.error(error);
+    mostrarAviso(`No se pudo abrir la biblioteca: ${error.message}`);
+  });
+
+// La APK y la Muz15 instalada desde Chrome son apps DISTINTAS en Android: cada una
+// guarda sus propias canciones. Si estás en la de Chrome, te lo decimos.
+function avisarSiEsLaVersionDeChrome() {
+  const esAndroid = /Android/i.test(navigator.userAgent);
+  const instaladaDesdeChrome = matchMedia('(display-mode: standalone)').matches;
+  if (esApk || !esAndroid || !instaladaDesdeChrome) return;
+  abrirHoja({
+    titulo: 'Estás en la Muz15 de Chrome',
+    subtitulo: 'Esta NO es la APK. Son dos apps distintas y cada una guarda sus propias canciones; '
+      + 'por eso a veces parece que se borraron. Usa la APK y quita esta de tu pantalla de inicio '
+      + '(mantén presionado el ícono → Desinstalar).',
+    acciones: [{ texto: 'Entendido', alElegir: () => {} }],
+  });
+}
