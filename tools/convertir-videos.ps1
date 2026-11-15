@@ -15,6 +15,8 @@ param(
   [string]$FFmpeg = 'C:\Program Files\Navidrome\ffmpeg.exe'
 )
 
+$FFprobe = Join-Path (Split-Path $FFmpeg) 'ffprobe.exe'
+
 $ErrorActionPreference = 'Stop'
 $extensiones = '.mp4', '.mov', '.mkv', '.webm'
 $registro = Join-Path $Originales 'conversiones.log'
@@ -47,26 +49,48 @@ foreach ($video in $videos) {
   $mp3 = [IO.Path]::ChangeExtension($video.FullName, '.mp3')
   if (Test-Path $mp3) { $mp3 = $mp3 -replace '\.mp3$', " ($(Get-Date -Format 'HHmmss')).mp3" }
   $temporal = "$mp3.parcial"
+  $portada = "$mp3.portada.jpg"
 
-  # -map 0:a:0     el audio del video
-  # -map 1:v:0?    un cuadro del segundo 3 como portada (el ? lo hace opcional)
-  # -q:a 2         MP3 de buena calidad (~190 kbps)
-  $argumentos = @(
-    '-hide_banner', '-loglevel', 'error', '-y',
-    '-i', $video.FullName,
-    '-ss', '3', '-i', $video.FullName,
-    '-map', '0:a:0', '-map', '1:v:0?',
-    '-c:a', 'libmp3lame', '-q:a', '2',
-    '-c:v', 'mjpeg', '-frames:v', '1', '-vf', "crop='min(iw,ih)':'min(iw,ih)',scale=600:600",
-    '-disposition:v', 'attached_pic',
-    '-map_metadata', '0', '-id3v2_version', '3',
-    '-f', 'mp3', $temporal
-  )
+  # 1) Portada: un cuadro del segundo 3, recortado en cuadrado. Va en un paso
+  #    aparte: si se hace junto con el audio, ffmpeg corta el MP3 al terminar ese cuadro.
+  & $FFmpeg -hide_banner -loglevel error -y -ss 3 -i $video.FullName -frames:v 1 `
+    -vf "crop='min(iw,ih)':'min(iw,ih)',scale=600:600" $portada 2>$null
+  $hayPortada = Test-Path $portada
+
+  # 2) Audio a MP3 de buena calidad (-q:a 2, ~190 kbps) con la portada adentro.
+  $argumentos = @('-hide_banner', '-loglevel', 'error', '-y', '-i', $video.FullName)
+  if ($hayPortada) { $argumentos += '-i', $portada }
+  $argumentos += '-map', '0:a:0'
+  if ($hayPortada) { $argumentos += '-map', '1:v:0', '-c:v', 'copy', '-disposition:v', 'attached_pic' }
+  $argumentos += '-c:a', 'libmp3lame', '-q:a', '2', '-map_metadata', '0', '-id3v2_version', '3'
+
+  # Si el video no trae título, lo sacamos del nombre: "Artista - Título (Official Video).mp4"
+  $tituloEnVideo = & $FFprobe -v error -show_entries format_tags=title -of 'default=nw=1:nk=1' $video.FullName 2>$null
+  if (-not $tituloEnVideo) {
+    $limpio = $video.BaseName -replace '\s*[\(\[][^\)\]]*\b(official|oficial|video|lyrics?|letra|audio|visualizer|hd|4k)\b[^\)\]]*[\)\]]', ''
+    if ($limpio -match '^(.+?) - (.+)$') {
+      $argumentos += '-metadata', "artist=$($Matches[1].Trim())", '-metadata', "title=$($Matches[2].Trim())"
+    } else {
+      $argumentos += '-metadata', "title=$($limpio.Trim())"
+    }
+  }
+
+  $argumentos += '-f', 'mp3', $temporal
 
   $salida = & $FFmpeg @argumentos 2>&1
+  Remove-Item $portada -ErrorAction SilentlyContinue
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path $temporal)) {
     Remove-Item $temporal -ErrorAction SilentlyContinue
     Escribir-Registro "ERROR con $($video.Name): $salida"
+    continue
+  }
+
+  # 3) Comprobación: el MP3 debe durar lo mismo que el video. Si no, no tocamos el original.
+  $duracionVideo = [double](& $FFprobe -v error -show_entries format=duration -of 'default=nw=1:nk=1' $video.FullName)
+  $duracionMp3 = [double](& $FFprobe -v error -show_entries format=duration -of 'default=nw=1:nk=1' $temporal)
+  if ($duracionMp3 -lt $duracionVideo - 2) {
+    Remove-Item $temporal -ErrorAction SilentlyContinue
+    Escribir-Registro "ERROR con $($video.Name): el MP3 salió de $([int]$duracionMp3) s y el video dura $([int]$duracionVideo) s"
     continue
   }
 
