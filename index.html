@@ -131,8 +131,9 @@
       <button id="siguiente" class="boton-icono" aria-label="Siguiente">⏭</button>
     </div>
     <!-- Dos <audio>: mientras uno suena, el otro ya tiene cargada la siguiente canción -->
-    <audio id="audio" preload="auto"></audio>
-    <audio id="audio2" preload="auto"></audio>
+    <!-- crossorigin: necesario para que el ecualizador pueda procesar lo que llega de tu PC -->
+    <audio id="audio" preload="auto" crossorigin="anonymous"></audio>
+    <audio id="audio2" preload="auto" crossorigin="anonymous"></audio>
   </footer>
 </body>
 </html>

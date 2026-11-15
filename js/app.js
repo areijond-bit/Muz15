@@ -10,6 +10,7 @@ import { crearReproductor } from './reproductor.js';
 import * as servidor from './servidor.js';
 import { abrirHoja, confirmar } from './hoja.js';
 import { esApk, AppNativa } from './nativo.js';
+import { crearEcualizador, BANDAS, PERFILES, MAXIMO_DB } from './ecualizador.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -990,11 +991,22 @@ try {
 } catch { /* nada */ }
 
 el.ajustes.addEventListener('click', () => {
+  const version = versionApk ? `Muz15 APK ${versionApk.nombre}` : undefined;
+  abrirHoja({
+    titulo: 'Ajustes',
+    subtitulo: version,
+    acciones: [
+      { texto: `🎚 Ecualizador${estadoEq.activo ? `  ·  ${nombrePerfil()}` : ''}`, alElegir: abrirEcualizador },
+      { texto: '⇄ Transición entre canciones', alElegir: elegirTransicion },
+    ],
+  });
+});
+
+function elegirTransicion() {
   const actual = reproductor.estado().fundido;
-  const version = versionApk ? ` · Muz15 APK ${versionApk.nombre}` : '';
   abrirHoja({
     titulo: 'Transición entre canciones',
-    subtitulo: `Las canciones vinculadas (⛓) siempre van pegadas, sin fundido.${version}`,
+    subtitulo: 'Las canciones vinculadas (⛓) siempre van pegadas, sin fundido.',
     acciones: OPCIONES_FUNDIDO.map(({ segundos, texto }) => ({
       texto: segundos === actual ? `${texto}  ✓` : texto,
       alElegir: () => {
@@ -1004,7 +1016,137 @@ el.ajustes.addEventListener('click', () => {
       },
     })),
   });
-});
+}
+
+/* ---------- Ecualizador ---------- */
+
+const ecualizador = crearEcualizador([el.audio, el.audio2]);
+const CLAVE_EQ = 'muz15-ecualizador';
+let estadoEq = { activo: false, perfil: 'plano', ganancias: [...PERFILES.plano.ganancias] };
+try {
+  const guardado = JSON.parse(localStorage.getItem(CLAVE_EQ));
+  if (guardado?.ganancias?.length === BANDAS.length) estadoEq = guardado;
+} catch { /* nada */ }
+
+const nombrePerfil = () => PERFILES[estadoEq.perfil]?.nombre ?? 'Personalizado';
+const etiquetaHz = (hz) => (hz >= 1000 ? `${hz / 1000}k` : String(hz));
+
+function guardarEq() {
+  try { localStorage.setItem(CLAVE_EQ, JSON.stringify(estadoEq)); } catch { /* nada */ }
+  ecualizador.aplicar(estadoEq.activo ? estadoEq.ganancias : BANDAS.map(() => 0));
+}
+
+// El navegador solo deja encender el procesador de audio tras un toque; si el
+// ecualizador quedó activado de la vez pasada, se conecta en el primer toque.
+if (estadoEq.activo) {
+  ecualizador.aplicar(estadoEq.ganancias);
+  document.addEventListener('pointerdown', () => ecualizador.conectar(), { once: true, capture: true });
+}
+
+function abrirEcualizador() {
+  const panel = document.createElement('div');
+  panel.className = 'eq';
+  panel.innerHTML = `
+    <label class="eq__interruptor">
+      <span>Ecualizador</span>
+      <input type="checkbox" role="switch">
+    </label>
+    <div class="eq__grafica">
+      <svg class="eq__curva" viewBox="0 0 800 300" preserveAspectRatio="none" aria-hidden="true">
+        <line x1="0" y1="150" x2="800" y2="150"/>
+        <path/>
+      </svg>
+      <div class="eq__bandas"></div>
+    </div>
+    <div class="eq__perfiles"></div>`;
+
+  const interruptor = panel.querySelector('input[role="switch"]');
+  const bandas = panel.querySelector('.eq__bandas');
+  const curva = panel.querySelector('.eq__curva path');
+  const perfiles = panel.querySelector('.eq__perfiles');
+
+  // Una barra vertical por banda: arriba = más fuerte, abajo = más bajito.
+  const controles = BANDAS.map((hz, i) => {
+    const columna = document.createElement('label');
+    columna.className = 'eq__banda';
+    columna.innerHTML = `<span class="eq__valor"></span><input type="range" min="-${MAXIMO_DB}" max="${MAXIMO_DB}" step="0.5" aria-label="${etiquetaHz(hz)} Hz"><span class="eq__hz">${etiquetaHz(hz)}</span>`;
+    const barra = columna.querySelector('input');
+    barra.addEventListener('input', () => {
+      estadoEq.ganancias[i] = Number(barra.value);
+      estadoEq.perfil = 'personalizado';
+      if (!estadoEq.activo) encender();
+      guardarEq();
+      pintar();
+    });
+    bandas.append(columna);
+    return { barra, valor: columna.querySelector('.eq__valor') };
+  });
+
+  for (const [clave, { nombre, ganancias }] of Object.entries(PERFILES)) {
+    const boton = document.createElement('button');
+    boton.type = 'button';
+    boton.className = 'eq__perfil';
+    boton.dataset.perfil = clave;
+    boton.textContent = nombre;
+    boton.addEventListener('click', () => {
+      estadoEq = { ...estadoEq, perfil: clave, ganancias: [...ganancias] };
+      if (!estadoEq.activo && clave !== 'plano') encender();
+      guardarEq();
+      pintar();
+    });
+    perfiles.append(boton);
+  }
+
+  function encender() {
+    ecualizador.conectar(); // estamos dentro de un toque: el navegador lo permite
+    estadoEq.activo = true;
+  }
+
+  interruptor.addEventListener('change', () => {
+    if (interruptor.checked) encender();
+    else estadoEq.activo = false;
+    guardarEq();
+    pintar();
+  });
+
+  // Curva suave que pasa por los 8 puntos (como en los ecualizadores de audífonos).
+  function dibujarCurva() {
+    const puntos = estadoEq.ganancias.map((g, i) => [
+      ((i + 0.5) / BANDAS.length) * 800,
+      150 - (g / MAXIMO_DB) * 140,
+    ]);
+    let d = `M0,${puntos[0][1]} L${puntos[0][0]},${puntos[0][1]}`;
+    for (let i = 1; i < puntos.length; i++) {
+      const [x0, y0] = puntos[i - 1];
+      const [x1, y1] = puntos[i];
+      const medio = (x0 + x1) / 2;
+      d += ` C${medio},${y0} ${medio},${y1} ${x1},${y1}`;
+    }
+    d += ` L800,${puntos.at(-1)[1]}`;
+    curva.setAttribute('d', d);
+  }
+
+  function pintar() {
+    interruptor.checked = estadoEq.activo;
+    panel.classList.toggle('eq--apagado', !estadoEq.activo);
+    controles.forEach(({ barra, valor }, i) => {
+      barra.value = estadoEq.ganancias[i];
+      const g = estadoEq.ganancias[i];
+      valor.textContent = g > 0 ? `+${g}` : String(g);
+    });
+    for (const boton of perfiles.children) {
+      boton.classList.toggle('eq__perfil--activo', boton.dataset.perfil === estadoEq.perfil);
+    }
+    dibujarCurva();
+  }
+
+  pintar();
+  abrirHoja({
+    titulo: 'Ecualizador',
+    subtitulo: 'Izquierda = bajos · centro = guitarra y voz · derecha = brillo y platillos.',
+    contenido: panel,
+  });
+}
 
 /* ---------- Avisos ---------- */
 

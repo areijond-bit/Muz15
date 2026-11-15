@@ -511,6 +511,108 @@ button { font: inherit; color: inherit; }
 .casilla input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--color-acento); }
 
 /* =========================================================
+   ECUALIZADOR
+   ========================================================= */
+.eq { display: flex; flex-direction: column; gap: var(--espacio-m); margin: var(--espacio-s) 0; }
+
+.eq__interruptor {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: var(--peso-fuerte);
+}
+
+/* Interruptor tipo Android */
+.eq__interruptor input {
+  appearance: none;
+  width: 48px;
+  height: 28px;
+  border-radius: var(--radio-redondo);
+  background: var(--color-borde);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.eq__interruptor input::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-texto);
+  transition: transform 0.2s;
+}
+.eq__interruptor input:checked { background: var(--color-acento); }
+.eq__interruptor input:checked::after { transform: translateX(20px); background: var(--color-texto-sobre-acento); }
+
+.eq__grafica {
+  position: relative;
+  height: 260px;
+  border-radius: var(--radio-m);
+  background: var(--color-fondo);
+}
+
+.eq__curva {
+  position: absolute;
+  inset: 24px 0 24px;   /* mismo alto que la zona de las barras */
+  width: 100%;
+  height: calc(100% - 48px);
+}
+.eq__curva line { stroke: var(--color-borde); stroke-width: 2; stroke-dasharray: 6 6; }
+.eq__curva path { fill: none; stroke: var(--color-acento); stroke-width: 4; vector-effect: non-scaling-stroke; }
+
+.eq__bandas {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+}
+
+.eq__banda {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.eq__valor, .eq__hz {
+  height: 24px;
+  line-height: 24px;
+  font-size: var(--texto-xs);
+  color: var(--color-texto-suave);
+}
+
+/* Barra vertical: arriba = más fuerte */
+.eq__banda input[type="range"] {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  flex: 1;
+  width: 32px;
+  margin: 0;
+  background: transparent;
+  accent-color: var(--color-acento);
+  cursor: pointer;
+}
+
+.eq__perfiles { display: flex; flex-wrap: wrap; gap: var(--espacio-s); }
+
+.eq__perfil {
+  padding: var(--espacio-s) var(--espacio-m);
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio-redondo);
+  background: transparent;
+  color: var(--color-texto);
+  font-size: var(--texto-s);
+  cursor: pointer;
+}
+.eq__perfil--activo { border-color: var(--color-acento); background: var(--color-acento); color: var(--color-texto-sobre-acento); font-weight: var(--peso-fuerte); }
+
+.eq--apagado .eq__curva path { stroke: var(--color-texto-suave); }
+.eq--apagado .eq__banda input { accent-color: var(--color-texto-suave); }
+
+/* =========================================================
    LISTAS
    ========================================================= */
 .encabezado-lista {
