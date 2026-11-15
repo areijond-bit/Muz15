@@ -25,6 +25,7 @@ android {
             def llave = System.getenv("MUZ15_KEYSTORE")
             if (llave) {
                 storeFile file(llave)
+                storeType "pkcs12"
                 storePassword System.getenv("MUZ15_KEYSTORE_PASSWORD")
                 keyAlias "muz15"
                 keyPassword System.getenv("MUZ15_KEYSTORE_PASSWORD")
