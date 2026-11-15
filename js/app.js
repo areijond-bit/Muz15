@@ -2107,10 +2107,23 @@ function abrirModoEco() {
 const CLAVE_VOLUMEN_SEGURO = 'muz15-volumen-seguro';
 // referencia: los dB que dan TUS audífonos con la música al máximo (100 hasta que calibres).
 let volumenSeguro = { activo: false, db: 85, referencia: 100 };
+// Una calibración razonable cae entre 75 y 105 dB. Fuera de eso casi seguro se midió
+// mal (por ejemplo, con la APK 1.6 cuyos efectos no se aplicaban) y frena de más.
+const REFERENCIA_MINIMA = 75;
+const REFERENCIA_MAXIMA = 105;
+let calibracionReiniciada = false;
 try {
   const guardado = JSON.parse(localStorage.getItem(CLAVE_VOLUMEN_SEGURO));
   if (guardado && OPCIONES_TOPE_DB.includes(guardado.db)) volumenSeguro = { ...volumenSeguro, ...guardado };
+  if (volumenSeguro.referencia < REFERENCIA_MINIMA || volumenSeguro.referencia > REFERENCIA_MAXIMA) {
+    volumenSeguro.referencia = 100;
+    calibracionReiniciada = true;
+    localStorage.setItem(CLAVE_VOLUMEN_SEGURO, JSON.stringify(volumenSeguro));
+  }
 } catch { /* nada */ }
+if (calibracionReiniciada) {
+  setTimeout(() => mostrarAviso('Se reinició la calibración del volumen seguro (había quedado mal). Vuelve a calibrar en ⚙ si quieres.', 8000), 2500);
+}
 
 function aplicarVolumenSeguro() {
   ecualizador.ponerTope(volumenSeguro.activo ? volumenSeguro.db : null, volumenSeguro.referencia);
@@ -2139,7 +2152,12 @@ function calibrarVolumenSeguro() {
         }
         // Lo que llega al máximo = lo medido + lo que el tope estaba frenando.
         const referencia = Math.round(medido - volumenSeguro.db + volumenSeguro.referencia);
-        volumenSeguro = { ...volumenSeguro, activo: true, referencia: Math.max(60, Math.min(120, referencia)) };
+        if (referencia < REFERENCIA_MINIMA || referencia > REFERENCIA_MAXIMA) {
+          mostrarAviso(`Ese número no cuadra (daría ${referencia} dB al máximo). Revisa que el volumen seguro esté en ${volumenSeguro.db} dB, `
+            + 'que la canción sea fuerte y el volumen del cel al máximo, y vuelve a intentar.', 9000);
+          return;
+        }
+        volumenSeguro = { ...volumenSeguro, activo: true, referencia };
         aplicarVolumenSeguro();
         mostrarAviso(`Calibrado: tus audífonos dan unos ${volumenSeguro.referencia} dB al máximo. Ahora ${volumenSeguro.db} dB en Muz15 ≈ ${volumenSeguro.db} dB en tu app.`, 7000);
       },

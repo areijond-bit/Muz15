@@ -47,6 +47,7 @@ public class ServicioMusica extends MediaSessionService {
     private float[] ganancias = new float[8];
     private float[] lados = new float[8]; // modo eco: -1 = todo a la izquierda, 0 = centro, 1 = todo a la derecha
     private boolean topeActivo = false;
+    private static final float UMBRAL_ANTI_SATURACION_DB = -1f;
     private float umbralTopeDb = 0f;
 
     @Override
@@ -140,7 +141,7 @@ public class ServicioMusica extends MediaSessionService {
     /** @param umbralDb dónde empieza a frenar (dB respecto al máximo, ≤ 0); null = sin tope */
     void ponerTope(@Nullable Float umbralDb) {
         topeActivo = umbralDb != null;
-        umbralTopeDb = umbralDb != null ? Math.min(0f, umbralDb) : 0f;
+        umbralTopeDb = umbralDb != null ? Math.min(UMBRAL_ANTI_SATURACION_DB, umbralDb) : 0f;
         aplicarEfectos();
     }
 
@@ -180,8 +181,13 @@ public class ServicioMusica extends MediaSessionService {
                     efectos.setPreEqBandByChannelIndex(canal, i, new DynamicsProcessing.EqBand(true, CORTES_HZ[i], ganancia));
                 }
             }
-            // Limitador: frena rápido (1 ms), suelta en 60 ms, y casi no deja pasar nada (10:1).
-            efectos.setLimiterAllChannelsTo(new DynamicsProcessing.Limiter(true, topeActivo, 0, 1f, 60f, 10f, umbralTopeDb, 0f));
+            // El limitador SIEMPRE está encendido:
+            //  - con volumen seguro: frena en el tope elegido;
+            //  - sin volumen seguro: frena justo antes del máximo (-1 dB), solo para que
+            //    lo que suba el ecualizador no sature ("truene"). Si nada satura, no toca nada.
+            // Frena en 5 ms y suelta en 200 ms: suave, sin "bombeo" ni crujidos.
+            float umbral = topeActivo ? umbralTopeDb : UMBRAL_ANTI_SATURACION_DB;
+            efectos.setLimiterAllChannelsTo(new DynamicsProcessing.Limiter(true, true, 0, 5f, 200f, 10f, umbral, 0f));
             efectos.setEnabled(true);
             vecesAplicado++;
             ultimoErrorEfectos = null;
