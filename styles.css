@@ -514,6 +514,22 @@ button { font: inherit; color: inherit; }
 
 .casilla input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--color-acento); }
 
+/* Deslizar hacia abajo para actualizar (Álbumes) */
+.refrescar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--espacio-s);
+  height: 0;
+  overflow: hidden;
+  color: var(--color-texto-suave);
+  font-size: var(--texto-s);
+}
+.refrescar__icono { font-size: var(--texto-l); color: var(--color-acento); transition: transform 0.15s; }
+.refrescar--listo .refrescar__icono { transform: rotate(180deg); }
+.refrescar--cargando .refrescar__icono { animation: girar 0.8s linear infinite; }
+@keyframes girar { to { transform: rotate(360deg); } }
+
 /* Títulos de sección (Listas: "En este teléfono" / "En Mi PC") */
 .seccion {
   margin: var(--espacio-l) 0 var(--espacio-s);

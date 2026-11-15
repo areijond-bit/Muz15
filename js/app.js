@@ -60,6 +60,8 @@ const el = {
   listaVacia: $('lista-vacia'),
   listasPC: $('listas-pc'),
   tituloListasTelefono: $('titulo-listas-telefono'),
+  refrescar: $('refrescar'),
+  refrescarTexto: $('refrescar-texto'),
   buscarListas: $('buscar-listas'),
   estadoListasPC: $('estado-listas-pc'),
   listasServidor: $('listas-servidor'),
@@ -720,6 +722,64 @@ async function actualizarAlbumesSolos() {
     revisandoAlbumes = false;
   }
 }
+
+/**
+ * Recarga forzada (deslizar hacia abajo en Álbumes): vuelve a leer tu biblioteca
+ * y tus álbumes del servidor, y pone al día TODOS los de este dispositivo aunque
+ * parezca que no cambiaron.
+ */
+async function recargarAlbumesAFuerza() {
+  if (!servidor.configuracion()) {
+    mostrarAviso('Conéctate a tu PC (pestaña Mi PC) para actualizar los álbumes.', 4000);
+    return;
+  }
+  cancionesServidor = [];
+  for (const lista of listas) lista.cambiadaServidor = null; // que todos se revisen
+  await cargarPlaylistsServidor();
+  await actualizarAlbumesSolos();
+  mostrarAviso('Álbumes actualizados.', 2500);
+}
+
+// Gesto de deslizar: solo cuenta si la página ya está hasta arriba.
+const DISTANCIA_PARA_RECARGAR = 80;
+let inicioDeslizar = null;
+let recargando = false;
+
+el.vistaListas.addEventListener('touchstart', (evento) => {
+  inicioDeslizar = window.scrollY <= 0 && tipoVista === 'album' && !recargando ? evento.touches[0].clientY : null;
+}, { passive: true });
+
+el.vistaListas.addEventListener('touchmove', (evento) => {
+  if (inicioDeslizar === null) return;
+  const distancia = Math.max(0, evento.touches[0].clientY - inicioDeslizar);
+  const alto = Math.min(distancia / 2, 60); // se estira la mitad de lo que mueves el dedo
+  el.refrescar.style.height = `${alto}px`;
+  const listo = distancia >= DISTANCIA_PARA_RECARGAR;
+  el.refrescar.classList.toggle('refrescar--listo', listo);
+  el.refrescarTexto.textContent = listo ? 'Suelta para actualizar' : 'Desliza para actualizar';
+}, { passive: true });
+
+el.vistaListas.addEventListener('touchend', async () => {
+  if (inicioDeslizar === null) return;
+  inicioDeslizar = null;
+  const listo = el.refrescar.classList.contains('refrescar--listo');
+  el.refrescar.classList.remove('refrescar--listo');
+  if (!listo) {
+    el.refrescar.style.height = '0';
+    return;
+  }
+  recargando = true;
+  el.refrescar.style.height = '48px';
+  el.refrescar.classList.add('refrescar--cargando');
+  el.refrescarTexto.textContent = 'Actualizando…';
+  try {
+    await recargarAlbumesAFuerza();
+  } finally {
+    recargando = false;
+    el.refrescar.classList.remove('refrescar--cargando');
+    el.refrescar.style.height = '0';
+  }
+});
 
 setInterval(actualizarAlbumesSolos, REVISAR_ALBUMES_CADA_MS);
 document.addEventListener('visibilitychange', () => {
@@ -1648,7 +1708,11 @@ el.ajustes.addEventListener('click', () => {
 // en una lista o vinculada, luego la que tiene portada, y si no la más antigua.
 
 const ARTISTAS_DESCONOCIDOS = new Set([SIN_ARTISTA, '[Unknown Artist]', '']);
-const tituloBase = (titulo) => normalizar(titulo).replace(/\(.*?\)|\[.*?\]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+// Solo se ignoran los paréntesis que NO cambian la canción: "(HQ)", "(Remasterizado
+// 2007)", "(Official Video)", "(1)"... Los demás sí cuentan: "Aquí & Ahora (Y Después)"
+// y "Aquí & Ahora (Los Primeros Tres Minutos)" son canciones distintas.
+const PARENTESIS_QUE_SOBRAN = /[([](?:\s*\d+\s*|[^)\]]*\b(?:remaster\w*|remasterizad\w*|hq|hd|4k|official|oficial|video|audio|lyrics?|letra|visualizer|explicit)\b[^)\]]*)[)\]]/g;
+const tituloBase = (titulo) => normalizar(titulo).replace(PARENTESIS_QUE_SOBRAN, '').replace(/[^a-z0-9]+/g, ' ').trim();
 const enAlgunaLista = (c) => listas.some((l) => l.canciones.includes(c.id));
 const estaVinculada = (c) => Boolean(c.siguienteFija) || cancionesLocales.some((o) => o.siguienteFija === c.id);
 
