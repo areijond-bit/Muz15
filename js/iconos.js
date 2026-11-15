@@ -42,6 +42,12 @@ const TRAZOS = {
   regla: { linea: 'M3.5 16.5L16.5 3.5l4 4-13 13zM7 13l2 2M10 10l1.5 1.5M13 7l2 2' },
   arrastrar: { relleno: 'M9 7a1.4 1.4 0 1 0 0-2.8A1.4 1.4 0 0 0 9 7zm6 0a1.4 1.4 0 1 0 0-2.8A1.4 1.4 0 0 0 15 7zm-6 6.4a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8zm6 0a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8zM9 19.8a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8zm6 0a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8z' },
   nota: { linea: 'M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z' },
+  inicio: { linea: 'M4 10.5L12 4l8 6.5V20h-5.5v-6h-5v6H4z' },
+  biblioteca: { linea: 'M5 4v16M10 4v16M14.5 4.6l5 14.8' },
+  menu: { linea: 'M4 7h16M4 12h16M4 17h16' },
+  cuadricula: { linea: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z' },
+  compartir: { linea: 'M12 15V4M8 8l4-4 4 4M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6' },
+  seguirPersona: { linea: 'M10 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM3 21a7 7 0 0 1 14 0M19 8v6M16 11h6' },
   reloj: { linea: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2' },
 };
 

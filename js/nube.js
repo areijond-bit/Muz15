@@ -524,6 +524,8 @@ function suscribir() {
     })
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'audios' }, (cambio) => ganchos.alAudioNuevo?.(cambio.new))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'escuchando', filter: `usuario=eq.${yo}` }, (cambio) => ganchos.alEscuchando?.(cambio.new))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'siguiendo' }, () => ganchos.alCambiarSeguidores?.())
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'perfiles' }, () => ganchos.alCambiarSeguidores?.())
     .subscribe();
   // Al volver a la app (o recuperar internet), ponerse al día.
   document.addEventListener('visibilitychange', alVolver);
@@ -591,6 +593,45 @@ export async function explorar({ busqueda = '', dueno = null, pagina = 0 } = {})
 
 export async function perfilPorUsuario(usuario) {
   const { data, error } = await db().from('perfiles').select('*').eq('usuario', usuario).maybeSingle();
+  if (error) throw traducir(error);
+  return data;
+}
+
+/* ---------- Seguidores (como en Instagram) ---------- */
+
+/**
+ * Quién sigue a quién, y todos los perfiles. Para un grupo de amigos alcanza con
+ * traer todo de una vez (así se cuentan seguidores y "en común" sin más consultas).
+ * @returns {Promise<{perfiles: Map<string, object>, siguiendo: {seguidor: string, seguido: string}[]}>}
+ */
+export async function red() {
+  const [{ data: perfiles, error: e1 }, { data: siguiendo, error: e2 }] = await Promise.all([
+    db().from('perfiles').select('*').limit(2000),
+    db().from('siguiendo').select('seguidor, seguido').limit(20000),
+  ]);
+  if (e1 || e2) throw traducir(e1 ?? e2);
+  return { perfiles: new Map(perfiles.map((p) => [p.id, p])), siguiendo };
+}
+
+/** Cuántos audios ha subido alguien. */
+export async function cuantasSubidas(dueno) {
+  const { count, error } = await db().from('audios').select('id', { count: 'exact', head: true }).eq('dueno', dueno);
+  if (error) throw traducir(error);
+  return count ?? 0;
+}
+
+export async function seguir(id) {
+  const { error } = await db().from('siguiendo').upsert({ seguidor: yo, seguido: id });
+  if (error) throw traducir(error);
+}
+
+export async function dejarDeSeguir(id) {
+  const { error } = await db().from('siguiendo').delete().eq('seguidor', yo).eq('seguido', id);
+  if (error) throw traducir(error);
+}
+
+export async function perfilPorId(id) {
+  const { data, error } = await db().from('perfiles').select('*').eq('id', id).maybeSingle();
   if (error) throw traducir(error);
   return data;
 }

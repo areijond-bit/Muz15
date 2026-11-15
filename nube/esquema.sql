@@ -8,6 +8,7 @@
 --   guardados   las canciones que tienes en TU biblioteca (tuyas o de tus amigos)
 --   listas      tus álbumes y playlists
 --   escuchando  qué estás escuchando ahora y en qué dispositivo
+--   siguiendo   quién sigue a quién (seguidores / seguidos, como en Instagram)
 --
 -- Seguridad (RLS): cualquiera con cuenta puede VER perfiles y audios; solo el dueño
 -- puede cambiar o borrar lo suyo. Tu biblioteca y lo que escuchas solo los ves tú.
@@ -100,6 +101,23 @@ create or replace function public.marcar_cambiada() returns trigger language plp
 begin new.cambiada := now(); return new; end $$;
 create trigger listas_cambiada before update on public.listas for each row execute function public.marcar_cambiada();
 
+-- ---------- Seguidores ----------
+create table if not exists public.siguiendo (
+  seguidor  uuid not null references public.perfiles (id) on delete cascade,
+  seguido   uuid not null references public.perfiles (id) on delete cascade,
+  creado    timestamptz not null default now(),
+  primary key (seguidor, seguido),
+  check (seguidor <> seguido)
+);
+create index if not exists siguiendo_seguido on public.siguiendo (seguido);
+alter table public.siguiendo enable row level security;
+drop policy if exists "siguiendo: todos lo ven" on public.siguiendo;
+create policy "siguiendo: todos lo ven" on public.siguiendo for select to authenticated using (true);
+drop policy if exists "siguiendo: sigues tú" on public.siguiendo;
+create policy "siguiendo: sigues tú" on public.siguiendo for insert to authenticated with check (seguidor = auth.uid());
+drop policy if exists "siguiendo: dejas de seguir tú" on public.siguiendo;
+create policy "siguiendo: dejas de seguir tú" on public.siguiendo for delete to authenticated using (seguidor = auth.uid());
+
 -- ---------- Lo que estás escuchando ----------
 create table if not exists public.escuchando (
   usuario        uuid primary key references public.perfiles (id) on delete cascade,
@@ -120,7 +138,7 @@ create policy "escuchando: solo tú" on public.escuchando for all to authenticat
 do $$
 declare tabla text;
 begin
-  foreach tabla in array array['audios', 'guardados', 'listas', 'escuchando', 'perfiles'] loop
+  foreach tabla in array array['audios', 'guardados', 'listas', 'escuchando', 'perfiles', 'siguiendo'] loop
     if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = tabla) then
       execute format('alter publication supabase_realtime add table public.%I', tabla);
     end if;
@@ -129,3 +147,4 @@ end $$;
 -- Para que al borrar llegue el registro completo (y saber de quién era).
 alter table public.guardados replica identity full;
 alter table public.listas replica identity full;
+alter table public.siguiendo replica identity full;

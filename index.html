@@ -51,8 +51,23 @@
   </button>
 
   <main class="contenido">
+    <!-- Inicio: tus canciones y lo nuevo de tus amigos -->
+    <section id="vista-inicio">
+      <div id="inicio-contenido"></div>
+    </section>
+
+    <!-- Tu biblioteca: Playlists · Álbumes · Descargado (como en Spotify) -->
+    <div id="cabecera-biblioteca" class="cabecera-biblioteca" hidden>
+      <h2 class="encabezado-vista__titulo">Tu biblioteca</h2>
+      <div class="pildoras" role="tablist">
+        <button class="pildora" data-chip="playlists">Playlists</button>
+        <button class="pildora" data-chip="albumes">Álbumes</button>
+        <button class="pildora" data-chip="descargado">Descargado</button>
+      </div>
+    </div>
+
     <!-- Canciones guardadas en el teléfono -->
-    <section id="vista-telefono">
+    <section id="vista-telefono" hidden>
       <div class="encabezado-vista">
         <div>
           <h2 class="encabezado-vista__titulo">Descargadas</h2>
@@ -66,7 +81,7 @@
       <ul id="lista" class="lista"></ul>
       <div id="vacio" class="vacio">
         <p class="vacio__titulo">Todavía no hay canciones</p>
-        <p class="vacio__texto">Toca <strong>+</strong> arriba para importar archivos MP3, M4A o MP4,<br>o descárgalas desde <strong>Mi PC</strong>.<br>Se guardan en el teléfono y suenan sin internet.</p>
+        <p class="vacio__texto">Toca <strong>Crear</strong> abajo para subir tus MP3, M4A o MP4,<br>o guarda las de tus amigos desde <strong>Buscar</strong>.<br>Se guardan en el teléfono y suenan sin internet.</p>
       </div>
       <!-- Solo aparece al usar Muz15 en la PC (con tools/servidor.mjs) -->
       <button id="enviar-pc" class="pildora pildora--ancha" hidden><span data-icono="subir" data-tamano="20"></span> Enviar estas canciones a mi PC</button>
@@ -75,7 +90,7 @@
     <!-- Lo que suben todos (como el inicio de YouTube) -->
     <section id="vista-explorar" hidden>
       <div class="encabezado-vista">
-        <h2 class="encabezado-vista__titulo">Explorar</h2>
+        <h2 class="encabezado-vista__titulo">Buscar</h2>
         <button id="recargar-explorar" class="boton-icono" aria-label="Actualizar"><span data-icono="actualizar"></span></button>
       </div>
       <div id="explorar-sin-cuenta" class="vacio" hidden>
@@ -84,11 +99,11 @@
         <button id="explorar-entrar" class="boton boton--primario">Entrar con Google</button>
       </div>
       <div id="explorar-contenido" hidden>
-        <div id="explorar-perfil" class="perfil-explorar" hidden></div>
         <label class="buscador-caja">
           <span data-icono="buscar" data-tamano="20"></span>
-          <input id="buscar-explorar" class="buscador-caja__entrada" type="search" placeholder="Canción, artista o álbum" autocomplete="off">
+          <input id="buscar-explorar" class="buscador-caja__entrada" type="search" placeholder="Canciones, artistas o personas" autocomplete="off">
         </label>
+        <ul id="personas-buscar" class="lista lista--personas"></ul>
         <p id="estado-explorar" class="espacio"></p>
         <ul id="lista-explorar" class="lista"></ul>
         <button id="mas-explorar" class="pildora pildora--ancha" hidden>Ver más</button>
@@ -209,10 +224,11 @@
 
   <!-- Navegación de abajo -->
   <nav class="navegacion" aria-label="Secciones">
-    <button class="pestana pestana--activa" data-vista="telefono"><span data-icono="telefono"></span><span>Descargadas</span></button>
-    <button class="pestana" data-vista="explorar"><span data-icono="globo"></span><span>Explorar</span></button>
-    <button class="pestana" data-vista="listas"><span data-icono="album"></span><span>Álbumes</span></button>
-    <button class="pestana" data-vista="playlists"><span data-icono="playlist"></span><span>Playlists</span></button>
+    <button class="pestana pestana--activa" data-vista="inicio"><span data-icono="inicio"></span><span>Inicio</span></button>
+    <button class="pestana" data-vista="explorar"><span data-icono="buscar"></span><span>Buscar</span></button>
+    <button class="pestana" data-vista="biblioteca"><span data-icono="biblioteca"></span><span>Tu biblioteca</span></button>
+    <!-- Crear no es una pantalla: abre el menú para subir audios o crear listas -->
+    <button class="pestana" data-accion="crear"><span data-icono="agregar"></span><span>Crear</span></button>
     <!-- La última: tu foto (o tu inicial), como en Spotify -->
     <button class="pestana" data-vista="perfil"><span id="pestana-perfil" class="pestana__avatar"><span data-icono="persona"></span></span><span>Perfil</span></button>
   </nav>

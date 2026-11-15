@@ -1055,3 +1055,123 @@ button { font: inherit; color: inherit; }
 .vista-perfil .avatar .icono { width: 44px; height: 44px; }
 .vista-perfil__acciones { display: flex; flex-direction: column; border-top: 1px solid var(--color-borde); padding-top: var(--espacio-s); }
 .vista-perfil__acciones .hoja__accion:last-child { color: var(--color-texto); justify-content: flex-start; }
+
+/* =========================================================
+   INICIO · BIBLIOTECA · PERFIL (estilo Instagram)
+   ========================================================= */
+.cabecera-biblioteca { margin-bottom: var(--espacio-m); }
+.cabecera-biblioteca .encabezado-vista__titulo { margin: var(--espacio-s) 0 0; }
+.cabecera-biblioteca .pildora { padding: 8px 14px; font-weight: var(--peso-normal); }
+.cabecera-biblioteca .pildora--acento { font-weight: var(--peso-fuerte); }
+.pestana .icono { width: 26px; height: 26px; }
+
+.inicio__saludo { margin: var(--espacio-s) 0 var(--espacio-m); }
+.seccion-inicio { margin-bottom: var(--espacio-l); }
+.seccion-inicio__titulo { margin: 0 0 var(--espacio-s); font-size: var(--texto-l); font-weight: var(--peso-fuerte); }
+.carrusel { display: flex; gap: var(--espacio-m); overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+.carrusel::-webkit-scrollbar { display: none; }
+.tarjeta {
+  flex: none;
+  width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-texto);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tarjeta__portada { width: 140px; height: 140px; border-radius: var(--radio-s); object-fit: cover; background: var(--color-superficie); }
+.tarjeta__titulo, .tarjeta__artista { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tarjeta__titulo { font-size: var(--texto-s); font-weight: var(--peso-fuerte); }
+.tarjeta__artista { font-size: var(--texto-xs); color: var(--color-texto-suave); }
+.tarjeta.sonando .tarjeta__titulo { color: var(--color-acento); }
+
+.vista-perfil { padding: 0; }
+.perfil-barra { display: flex; align-items: center; gap: var(--espacio-s); min-height: 48px; margin-bottom: var(--espacio-s); }
+.perfil-barra__usuario { flex: 1; margin: 0; font-size: var(--texto-l); font-weight: var(--peso-fuerte); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.perfil-cabeza { display: flex; align-items: center; gap: var(--espacio-l); }
+.perfil-cifras { flex: 1; display: flex; justify-content: space-around; }
+.perfil-cifra {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--color-texto);
+  font: inherit;
+  cursor: pointer;
+}
+.perfil-cifra strong { font-size: var(--texto-l); }
+.perfil-cifra span { font-size: var(--texto-s); }
+.perfil-nombre { margin: var(--espacio-s) 0 0; font-weight: var(--peso-fuerte); }
+.perfil-te-sigue { display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: var(--radio-s); background: var(--color-superficie-activa); color: var(--color-texto-suave); font-size: var(--texto-xs); }
+.perfil-botones { display: flex; gap: var(--espacio-s); margin: var(--espacio-m) 0; }
+.boton-perfil {
+  flex: 1;
+  min-height: 34px;
+  padding: 0 var(--espacio-m);
+  border: 0;
+  border-radius: var(--radio-s);
+  background: var(--color-superficie-activa);
+  color: var(--color-texto);
+  font: inherit;
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  cursor: pointer;
+}
+.boton-perfil--acento { background: var(--color-acento); color: var(--color-texto-sobre-acento); }
+
+.descubrir { margin: var(--espacio-s) 0 var(--espacio-m); }
+.descubrir__titulo { margin: 0 0 var(--espacio-s); font-weight: var(--peso-fuerte); }
+.descubrir__carrusel { display: flex; gap: var(--espacio-s); overflow-x: auto; scrollbar-width: none; }
+.descubrir__carrusel::-webkit-scrollbar { display: none; }
+.tarjeta-persona {
+  flex: none;
+  width: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: var(--espacio-m) var(--espacio-s);
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio-m);
+  background: var(--color-superficie);
+  text-align: center;
+  cursor: pointer;
+}
+.tarjeta-persona__nombre { margin: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--peso-fuerte); }
+.tarjeta-persona__dato { margin: 0; min-height: 2.4em; color: var(--color-texto-suave); font-size: var(--texto-xs); }
+.tarjeta-persona .boton-perfil { flex: none; width: 100%; }
+
+.perfil-pestanas { display: flex; justify-content: center; border-bottom: 1px solid var(--color-borde); margin: 0 calc(-1 * var(--espacio-m)) 2px; }
+.perfil-pestanas__activa { display: grid; place-items: center; width: 33%; padding: 10px 0; border-bottom: 2px solid var(--color-texto); }
+.cuadricula { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin: 0 calc(-1 * var(--espacio-m)); }
+.cuadro { position: relative; aspect-ratio: 1; padding: 0; border: 0; background: var(--color-superficie); overflow: hidden; cursor: pointer; }
+.cuadro__portada { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cuadro__titulo {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 16px 6px 5px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+  color: #fff;
+  font-size: 11px;
+  font-weight: var(--peso-fuerte);
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cuadro.sonando .cuadro__titulo { color: var(--color-acento); }
+
+.lista--personas { margin-bottom: var(--espacio-s); }
+.persona { display: flex; align-items: center; gap: var(--espacio-m); padding: var(--espacio-s) 0; cursor: pointer; }
+.persona__info { flex: 1; min-width: 0; }
+.persona__usuario { margin: 0; font-weight: var(--peso-fuerte); overflow: hidden; text-overflow: ellipsis; }
+.persona__nombre { margin: 0; color: var(--color-texto-suave); font-size: var(--texto-s); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.persona .boton-perfil { flex: none; }

@@ -6,7 +6,7 @@
 // IMPORTANTE: cada vez que publiques cambios, sube el número de VERSION.
 // Así el teléfono sabe que tiene que descargar la versión nueva.
 
-const VERSION = 'muz15-v30';
+const VERSION = 'muz15-v31';
 
 const ARCHIVOS_APP = [
   './',
