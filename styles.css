@@ -4,15 +4,15 @@
    ========================================================= */
 :root {
   /* Colores */
-  --color-fondo: #0e0e12;
-  --color-superficie: #1a1a21;
-  --color-superficie-activa: #26262f;
-  --color-texto: #f4f4f6;
-  --color-texto-suave: #9a9aa6;
-  --color-acento: #ff5a36;          /* el color de "15" y los botones principales */
-  --color-texto-sobre-acento: #ffffff;
+  --color-fondo: #000000;
+  --color-superficie: #121212;
+  --color-superficie-activa: #1f1f1f;
+  --color-texto: #ffffff;
+  --color-texto-suave: #a7a7a7;
+  --color-acento: #a8ff1a;          /* verde lima: el "15" y los botones principales */
+  --color-texto-sobre-acento: #000000;
   --color-peligro: #ff4d6d;
-  --color-borde: #2c2c36;
+  --color-borde: #262626;
 
   /* Tipografía */
   --fuente: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -477,8 +477,12 @@ button { font: inherit; color: inherit; }
   font-size: var(--texto-l);
 }
 
-/* En pantallas angostas el reproductor se apila en dos filas */
-@media (max-width: 380px) {
+/* Aleatorio: gris apagado, color de acento encendido */
+.boton-icono--modo { color: var(--color-texto-suave); }
+.boton-icono--modo[aria-pressed="true"] { color: var(--color-acento); }
+
+/* En pantallas de teléfono el reproductor se apila en dos filas */
+@media (max-width: 440px) {
   .reproductor { flex-wrap: wrap; }
   .reproductor__controles { width: 100%; justify-content: center; }
 }

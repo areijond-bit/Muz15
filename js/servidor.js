@@ -99,6 +99,7 @@ function aCancion(s) {
     tipo: s.contentType || 'audio/mpeg',
     sufijo: s.suffix || 'mp3',
     duracion: s.duration ?? 0,
+    tamano: s.size ?? 0, // bytes del archivo original
   };
 }
 

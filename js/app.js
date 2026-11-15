@@ -37,6 +37,8 @@ const el = {
   estadoServidor: $('estado-servidor'),
   listaServidor: $('lista-servidor'),
   desconectar: $('desconectar'),
+  descargarTodas: $('descargar-todas'),
+  aleatorio: $('aleatorio'),
   vistaListas: $('vista-listas'),
   indiceListas: $('indice-listas'),
   nuevaLista: $('nueva-lista'),
@@ -534,7 +536,82 @@ function pintarListaServidor() {
   else if (visiblesServidor.length > MAXIMO_EN_PANTALLA) el.estadoServidor.textContent = `${visiblesServidor.length} canciones · mostrando ${MAXIMO_EN_PANTALLA}, usa el buscador`;
   else el.estadoServidor.textContent = `${visiblesServidor.length} de ${total} canciones`;
 
+  pintarBotonDescargarTodas();
   marcarSonando(reproductor.estado().cancion);
+}
+
+/* ---------- Descargar todas ---------- */
+
+// null cuando no hay descarga masiva; si no, su progreso.
+let descargaMasiva = null;
+
+/** Las canciones visibles (respetando el buscador) que faltan en el teléfono. */
+const pendientes = () => visiblesServidor.filter((c) => !localDe(c));
+
+const mb = (bytes) => Math.max(1, Math.round(bytes / 1024 / 1024));
+
+function pintarBotonDescargarTodas() {
+  const boton = el.descargarTodas;
+  if (descargaMasiva) {
+    boton.hidden = false;
+    boton.textContent = `Descargando ${descargaMasiva.hechas + 1} de ${descargaMasiva.total}… · Detener`;
+    return;
+  }
+  const faltan = pendientes();
+  boton.hidden = faltan.length === 0;
+  const peso = faltan.reduce((suma, c) => suma + c.tamano, 0);
+  const alcance = el.buscar.value.trim() ? 'estas' : 'todas';
+  boton.textContent = `⬇ Descargar ${alcance} (${faltan.length}${peso ? ` · ${mb(peso)} MB` : ''})`;
+}
+
+el.descargarTodas.addEventListener('click', async () => {
+  if (descargaMasiva) {
+    descargaMasiva.cancelar = true;
+    return;
+  }
+  const faltan = pendientes();
+  if (!faltan.length) return;
+
+  // ¿Cabe en el teléfono?
+  const peso = faltan.reduce((suma, c) => suma + c.tamano, 0);
+  const espacio = await espacioUsado();
+  if (espacio && peso > espacio.total - espacio.usado) {
+    mostrarAviso(`No cabe: necesitas ${mb(peso)} MB y quedan ${mb(espacio.total - espacio.usado)} MB. Usa el buscador para bajar menos.`, 8000);
+    return;
+  }
+
+  confirmar({
+    titulo: `¿Descargar ${faltan.length} ${faltan.length === 1 ? 'canción' : 'canciones'}?`,
+    subtitulo: `${peso ? `Son unos ${mb(peso)} MB. ` : ''}Deja Muz15 abierta hasta que termine; la pantalla se mantiene encendida mientras tanto.`,
+    textoBoton: 'Descargar',
+    alConfirmar: () => descargarVarias(faltan),
+  });
+});
+
+async function descargarVarias(canciones) {
+  descargaMasiva = { hechas: 0, total: canciones.length, fallidas: 0, cancelar: false };
+  // Mantiene la pantalla encendida para que Android no pause la descarga.
+  const bloqueo = await navigator.wakeLock?.request('screen').catch(() => null);
+
+  for (const cancion of canciones) {
+    if (descargaMasiva.cancelar) break;
+    pintarBotonDescargarTodas();
+    if (!localDe(cancion)) {
+      const bien = await descargarDelServidor(cancion, { silencioso: true });
+      if (!bien) descargaMasiva.fallidas++;
+    }
+    descargaMasiva.hechas++;
+  }
+
+  const { hechas, total, fallidas, cancelar } = descargaMasiva;
+  descargaMasiva = null;
+  bloqueo?.release();
+  pintarListaServidor();
+
+  const bajadas = hechas - fallidas;
+  let mensaje = cancelar ? `Detenido: ${bajadas} de ${total} descargadas.` : `Listo: ${bajadas} ${bajadas === 1 ? 'canción descargada' : 'canciones descargadas'}.`;
+  if (fallidas) mensaje += ` ${fallidas} fallaron (puedes volver a intentarlo).`;
+  mostrarAviso(mensaje, 6000);
 }
 
 // ⬇ = descargar · … = descargando · ✓ = ya está en el teléfono
@@ -559,7 +636,9 @@ function botonDescarga(cancion) {
   return boton;
 }
 
-async function descargarDelServidor(cancion) {
+/** @returns {Promise<boolean>} true si se guardó bien */
+async function descargarDelServidor(cancion, { silencioso = false } = {}) {
+  let bien = false;
   descargando.add(cancion.idServidor);
   pintarListaServidor();
   try {
@@ -575,19 +654,24 @@ async function descargarDelServidor(cancion) {
       nombreArchivo: `${cancion.artista} - ${cancion.titulo}.${cancion.sufijo}`,
       agregada: Date.now(),
     }, audio);
-    mostrarAviso(`"${cancion.titulo}" ya está en el teléfono.`, 3000);
+    bien = true;
+    if (!silencioso) mostrarAviso(`"${cancion.titulo}" ya está en el teléfono.`, 3000);
     pedirAlmacenamientoPersistente();
   } catch (error) {
-    mostrarAviso(`No se pudo descargar "${cancion.titulo}": ${error.message}`, 6000);
+    console.error('Descarga fallida:', cancion.titulo, error);
+    if (!silencioso) mostrarAviso(`No se pudo descargar "${cancion.titulo}": ${error.message}`, 6000);
   } finally {
     descargando.delete(cancion.idServidor);
     await recargarLista();
   }
+  return bien;
 }
 
 /* ---------- Reproductor ---------- */
 
-function pintarReproductor({ cancion, sonando, urlPortada }) {
+function pintarReproductor({ cancion, sonando, aleatorio, urlPortada }) {
+  el.aleatorio.setAttribute('aria-pressed', String(aleatorio));
+  el.aleatorio.setAttribute('aria-label', `Modo aleatorio: ${aleatorio ? 'encendido' : 'apagado'}`);
   el.titulo.textContent = cancion?.titulo ?? 'Nada sonando';
   el.artista.textContent = cancion?.artista ?? 'Elige una canción';
   el.portada.src = urlPortada;
@@ -602,6 +686,18 @@ el.alternar.addEventListener('click', () => {
   else reproductor.reproducirLista(cancionesLocales, 0);
 });
 el.siguiente.addEventListener('click', () => reproductor.siguiente());
+
+// Aleatorio / continuo. Se recuerda para la próxima vez que abras la app.
+const CLAVE_ALEATORIO = 'muz15-aleatorio';
+el.aleatorio.addEventListener('click', () => {
+  const activar = !reproductor.estado().aleatorio;
+  reproductor.cambiarAleatorio(activar);
+  try { localStorage.setItem(CLAVE_ALEATORIO, activar ? '1' : '0'); } catch { /* nada */ }
+  mostrarAviso(activar ? 'Modo aleatorio' : 'Modo continuo: en orden', 2000);
+});
+try {
+  if (localStorage.getItem(CLAVE_ALEATORIO) === '1') reproductor.cambiarAleatorio(true);
+} catch { /* nada */ }
 el.anterior.addEventListener('click', () => reproductor.anterior());
 
 // Barra de progreso: se mueve sola y también sirve para saltar a otra parte.

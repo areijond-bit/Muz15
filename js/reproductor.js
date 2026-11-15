@@ -29,13 +29,42 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
   let urlAudio = null;   // dirección del audio actual
   let urlPortada = null; // dirección de la portada actual
 
+  // Orden en que suenan las canciones: [0, 1, 2...] en modo continuo,
+  // revuelto en modo aleatorio. "posicion" es dónde vamos dentro de ese orden.
+  let aleatorio = false;
+  let orden = [];
+  let posicion = -1;
+
   const estado = () => ({
     cancion: lista[indice] ?? null,
     indice,
     sonando: !audio.paused,
+    aleatorio,
     urlPortada: urlPortada ?? PORTADA_POR_DEFECTO,
   });
   const avisar = () => alCambiar(estado());
+
+  /* ---------- Orden (continuo o aleatorio) ---------- */
+
+  // Revuelve un arreglo (algoritmo de Fisher-Yates).
+  function mezclar(arreglo) {
+    for (let i = arreglo.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arreglo[i], arreglo[j]] = [arreglo[j], arreglo[i]];
+    }
+    return arreglo;
+  }
+
+  // En aleatorio, la canción actual queda primero para que no se repita enseguida.
+  function armarOrden() {
+    const indices = lista.map((_, i) => i);
+    if (aleatorio) {
+      mezclar(indices);
+      if (indice >= 0) indices.unshift(...indices.splice(indices.indexOf(indice), 1));
+    }
+    orden = indices;
+    posicion = orden.indexOf(indice);
+  }
 
   /* ---------- Cambiar de canción ---------- */
 
@@ -43,6 +72,8 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
     if (!lista.length) return;
     // Damos la vuelta: después de la última viene la primera, y al revés.
     indice = (nuevoIndice + lista.length) % lista.length;
+    if (orden.length !== lista.length) armarOrden();
+    posicion = orden.indexOf(indice);
     const cancion = lista[indice];
 
     liberarURLs();
@@ -83,7 +114,14 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
   }
 
   function siguiente() {
-    return reproducir(indice + 1);
+    if (!lista.length) return;
+    let nueva = posicion + 1;
+    if (nueva >= orden.length) {
+      // Se acabó la lista: vuelve a empezar (en aleatorio, con otro orden).
+      nueva = 0;
+      if (aleatorio) orden = mezclar(lista.map((_, i) => i));
+    }
+    return reproducir(orden[nueva]);
   }
 
   function anterior() {
@@ -91,7 +129,8 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
       audio.currentTime = 0;
       return;
     }
-    return reproducir(indice - 1);
+    if (!lista.length) return;
+    return reproducir(orden[(posicion - 1 + orden.length) % orden.length]);
   }
 
   function irA(segundos) {
@@ -186,7 +225,15 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
     /** Pone una lista (la del teléfono o la del servidor) y empieza en esa canción. */
     reproducirLista(nuevaLista, desde) {
       lista = nuevaLista;
+      indice = desde;
+      armarOrden();
       return reproducir(desde);
+    },
+    /** Activa o quita el modo aleatorio sin cortar la canción actual. */
+    cambiarAleatorio(activar) {
+      aleatorio = activar;
+      armarOrden();
+      avisar();
     },
     /** Saca una canción borrada de la lista; si era la que sonaba, la detiene. */
     quitar(id) {
@@ -202,6 +249,7 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
         indice--;
       }
       lista = lista.filter((c) => c.id !== id);
+      armarOrden();
       avisar();
     },
     alternar,
