@@ -117,6 +117,17 @@ export async function obtenerAudio(cancion) {
   return new Blob([buffer], { type: cancion.tipo });
 }
 
+/**
+ * Deja vacío el audio guardado en la página (cuando ya vive como archivo del
+ * teléfono, en la APK con reproductor nativo). Así no ocupa doble espacio.
+ */
+export async function liberarAudio(id) {
+  const db = await abrirDB();
+  const tx = db.transaction(AUDIOS, 'readwrite');
+  tx.objectStore(AUDIOS).put(new ArrayBuffer(0), id);
+  await transaccionTerminada(tx);
+}
+
 /** Borra una canción, su audio, y la saca de todas las listas. */
 export async function borrarCancion(id) {
   const db = await abrirDB();

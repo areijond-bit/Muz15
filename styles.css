@@ -660,6 +660,20 @@ button { font: inherit; color: inherit; }
 
 .eq--apagado .eq__curva path { stroke: var(--color-texto-suave); }
 .eq--apagado .volumen__opciones { opacity: 0.5; }
+
+/* Modo eco: una barra horizontal por zona del sonido */
+.eco__bandas { display: flex; flex-direction: column; gap: var(--espacio-s); }
+.eco__banda {
+  display: grid;
+  grid-template-columns: 1fr auto 2fr auto;
+  align-items: center;
+  gap: var(--espacio-s);
+}
+.eco__nombre { font-size: var(--texto-xs); color: var(--color-texto-suave); }
+.eco__nombre strong { display: block; color: var(--color-texto); font-size: var(--texto-s); }
+.eco__lado { font-size: var(--texto-xs); color: var(--color-texto-suave); }
+.eco__banda input[type="range"] { width: 100%; accent-color: var(--color-acento); }
+.eq--apagado .eco__banda input { accent-color: var(--color-texto-suave); }
 .volumen__nota { text-align: left; line-height: 1.5; }
 .eq--apagado .eq__banda input { accent-color: var(--color-texto-suave); }
 

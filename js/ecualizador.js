@@ -122,5 +122,7 @@ export function crearEcualizador(audios) {
       referenciaDb = referencia;
       if (contexto) aplicarTope();
     },
+    /** El modo eco solo existe en la APK con reproductor nativo. */
+    ponerEco() {},
   };
 }

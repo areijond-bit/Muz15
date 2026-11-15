@@ -8,6 +8,11 @@ import {
 import { activarArrastre } from './arrastrar.js';
 import { leerMetadatos } from './metadatos.js';
 import { crearReproductor } from './reproductor.js';
+import { crearReproductorNativo } from './reproductor-nativo.js';
+import {
+  hayReproductorNativo, apkConReproductorNativo, CLAVE_USAR_ANTERIOR,
+  Reproductor, rutaAudio, rutaPortada, urlDe, trasladar, borrar as borrarArchivo,
+} from './archivos.js';
 import * as servidor from './servidor.js';
 import { abrirHoja, confirmar } from './hoja.js';
 import { esApk, AppNativa } from './nativo.js';
@@ -79,12 +84,83 @@ let cancionesServidor = [];   // toda la biblioteca del servidor
 let visiblesServidor = [];    // las que pasan el filtro de búsqueda
 const descargando = new Set(); // idServidor de las que se están bajando ahora
 
-const reproductor = crearReproductor([el.audio, el.audio2], {
-  alProgreso: pintarProgreso,
-  obtenerFuente,
-  alCambiar: pintarReproductor,
-  alFallar: (mensaje) => mostrarAviso(mensaje, 5000),
-});
+// En la APK nueva suena el reproductor nativo de Android (sigue aunque cierres la
+// app); en el navegador y en APKs viejas, el reproductor de la página.
+const reproductor = hayReproductorNativo
+  ? crearReproductorNativo({
+    fuente: fuenteNativa,
+    alProgreso: pintarProgreso,
+    alCambiar: pintarReproductor,
+    alFallar: (mensaje) => mostrarAviso(mensaje, 5000),
+  })
+  : crearReproductor([el.audio, el.audio2], {
+    alProgreso: pintarProgreso,
+    obtenerFuente,
+    alCambiar: pintarReproductor,
+    alFallar: (mensaje) => mostrarAviso(mensaje, 5000),
+  });
+
+const PORTADA_POR_DEFECTO = new URL('icons/portada.png', location.href).href;
+
+/**
+ * Para el reproductor nativo: de dónde sacar el audio y la portada.
+ * Del teléfono → archivo; de Mi PC sin descargar → tu servidor.
+ */
+async function fuenteNativa(cancion) {
+  if (cancion.origen === 'servidor') {
+    const local = localDe(cancion);
+    if (!local) {
+      const portada = servidor.urlPortada(cancion) ?? PORTADA_POR_DEFECTO;
+      return { url: servidor.urlAudio(cancion), portada, portadaPantalla: portada };
+    }
+    cancion = local;
+  }
+  if (!cancion.enArchivo) await asegurarArchivos(); // por si aún no se trasladó
+  return {
+    url: await urlDe(rutaAudio(cancion)),
+    portada: cancion.portada ? await urlDe(rutaPortada(cancion)) : PORTADA_POR_DEFECTO,
+    portadaPantalla: urlDePortada(cancion),
+  };
+}
+
+/* ---------- Canciones como archivos (APK con reproductor nativo) ---------- */
+// Las canciones nuevas (importadas o bajadas) y las de antes se pasan a archivos
+// del teléfono para que el reproductor nativo pueda leerlas. Solo una vez cada una.
+
+let trasladando = null;
+function asegurarArchivos() {
+  if (!hayReproductorNativo) return Promise.resolve();
+  if (!trasladando) {
+    trasladando = (async () => {
+      const pendientes = cancionesLocales.filter((c) => !c.enArchivo);
+      if (!pendientes.length) return;
+      const muchas = pendientes.length > 3;
+      await trasladar(pendientes, {
+        obtenerAudio,
+        actualizarCancion,
+        // Por ahora se conserva también la copia de la página: así el plan B
+        // ("usar el reproductor anterior") sigue funcionando. Cuando el nuevo
+        // esté probado, aquí va liberarAudio para no ocupar doble espacio.
+        liberarAudio: async () => {},
+        alAvanzar: (i, total) => {
+          if (muchas) mostrarAviso(`Preparando tus canciones para el reproductor nuevo: ${i} de ${total}…`);
+        },
+      });
+      cancionesLocales = await listarCanciones();
+      if (muchas) mostrarAviso('Listo: tus canciones ya están en el reproductor nuevo.', 4000);
+    })().finally(() => { trasladando = null; });
+  }
+  return trasladando;
+}
+
+/** Borra la canción de la biblioteca y, en la APK nueva, también sus archivos. */
+async function borrarCancionCompleta(cancion) {
+  await borrarCancion(cancion.id);
+  if (hayReproductorNativo) {
+    await borrarArchivo(rutaAudio(cancion));
+    await borrarArchivo(rutaPortada(cancion));
+  }
+}
 
 /**
  * Direcciones del audio y la portada de una canción.
@@ -215,6 +291,8 @@ async function recargarLista() {
   pintarEspacio();
   if (cancionesServidor.length) pintarListaServidor(); // actualiza los ✓ de descargadas
   programarRespaldo();
+  // APK nueva: las canciones recién importadas o bajadas pasan a archivos del teléfono.
+  if (hayReproductorNativo && cancionesLocales.some((c) => !c.enArchivo)) asegurarArchivos();
 }
 
 /* ---------- Respaldo de tus descargas en tu PC ---------- */
@@ -366,7 +444,7 @@ function menuCancion(cancion) {
           subtitulo: 'Se borra de este teléfono y de tus listas. Si está en tu PC, la puedes volver a descargar.',
           textoBoton: 'Borrar',
           alConfirmar: async () => {
-            await borrarCancion(cancion.id);
+            await borrarCancionCompleta(cancion);
             reproductor.quitar(cancion.id);
             await recargarLista();
             mostrarAviso(`"${cancion.titulo}" se borró del teléfono.`, 3000);
@@ -1710,9 +1788,19 @@ el.ajustes.addEventListener('click', () => {
     acciones: [
       { texto: `🎚 Ecualizador${estadoEq.activo ? `  ·  ${nombrePerfil()}` : ''}`, alElegir: abrirEcualizador },
       { texto: `🛡 Volumen seguro  ·  ${volumenSeguro.activo ? `${volumenSeguro.db} dB` : 'desactivado'}`, alElegir: abrirVolumenSeguro },
+      { texto: `🎧 Modo eco${estadoEco.activo ? '  ·  activado' : ''}`, alElegir: abrirModoEco },
       { texto: '⇄ Transición entre canciones', alElegir: elegirTransicion },
       { texto: '🧹 Quitar canciones repetidas', alElegir: quitarRepetidas },
       { texto: '⟳ Buscar actualizaciones', alElegir: buscarActualizaciones },
+      ...(apkConReproductorNativo ? [{
+        texto: hayReproductorNativo
+          ? '↩ Usar el reproductor anterior (si el nuevo falla)'
+          : '▶ Volver al reproductor nuevo (sigue sonando al cerrar la app)',
+        alElegir: () => {
+          try { localStorage.setItem(CLAVE_USAR_ANTERIOR, hayReproductorNativo ? '1' : '0'); } catch { /* nada */ }
+          location.reload();
+        },
+      }] : []),
     ],
   });
 });
@@ -1810,7 +1898,7 @@ async function borrarRepetidas(repetidas, total) {
     }
 
     for (const sobra of sobran) {
-      await borrarCancion(sobra.id);
+      await borrarCancionCompleta(sobra);
       reproductor.quitar(sobra.id);
     }
   }
@@ -1819,6 +1907,14 @@ async function borrarRepetidas(repetidas, total) {
 }
 
 function elegirTransicion() {
+  if (hayReproductorNativo) {
+    abrirHoja({
+      titulo: 'Transición entre canciones',
+      subtitulo: 'Con el reproductor nuevo las canciones van siempre pegadas, sin pausa entre ellas. '
+        + 'El fundido todavía no está disponible en la APK.',
+    });
+    return;
+  }
   const actual = reproductor.estado().fundido;
   abrirHoja({
     titulo: 'Transición entre canciones',
@@ -1836,7 +1932,30 @@ function elegirTransicion() {
 
 /* ---------- Ecualizador ---------- */
 
-const ecualizador = crearEcualizador([el.audio, el.audio2]);
+// En la APK nueva los efectos los hace Android (DynamicsProcessing) en el
+// reproductor nativo; en el navegador, Web Audio sobre los <audio>.
+const ecualizador = hayReproductorNativo ? crearEfectosNativos() : crearEcualizador([el.audio, el.audio2]);
+
+function crearEfectosNativos() {
+  let ganancias = BANDAS.map(() => 0);
+  let lados = BANDAS.map(() => 0);
+  let umbralDb = null;
+  let pendiente = null;
+  // Juntamos los cambios seguidos (al arrastrar una barra) en un solo envío.
+  const mandar = () => {
+    clearTimeout(pendiente);
+    pendiente = setTimeout(() => {
+      Reproductor.efectos({ ganancias, lados, umbralDb }).catch((error) => console.warn('Efectos:', error.message));
+    }, 60);
+  };
+  return {
+    conectado: true,
+    conectar() {},
+    aplicar(nuevas) { ganancias = nuevas.map((g) => Math.max(-MAXIMO_DB, Math.min(MAXIMO_DB, g))); mandar(); },
+    ponerTope(db, referencia = 100) { umbralDb = db === null ? null : Math.min(0, db - referencia); mandar(); },
+    ponerEco(nuevos) { lados = nuevos.map((l) => Math.max(-1, Math.min(1, l))); mandar(); },
+  };
+}
 const CLAVE_EQ = 'muz15-ecualizador';
 let estadoEq = { activo: false, perfil: 'plano', ganancias: [...PERFILES.plano.ganancias] };
 try {
@@ -1857,6 +1976,118 @@ function guardarEq() {
 if (estadoEq.activo) {
   ecualizador.aplicar(estadoEq.ganancias);
   document.addEventListener('pointerdown', () => ecualizador.conectar(), { once: true, capture: true });
+}
+
+/* ---------- Modo eco ---------- */
+// Como el ecualizador, pero cada barra es horizontal: mueve esa zona del sonido
+// (bajos, voz, guitarra, platillos…) hacia el oído izquierdo o el derecho.
+// Solo en la APK con reproductor nativo (Android ecualiza cada oído por separado).
+
+const CLAVE_ECO = 'muz15-eco';
+const PERFILES_ECO = {
+  centro: { nombre: 'Centro', lados: [0, 0, 0, 0, 0, 0, 0, 0] },
+  abierto: { nombre: 'Abierto', lados: [0, -0.4, 0.4, -0.4, 0.4, -0.4, 0.4, 0] },
+  bajosIzq: { nombre: 'Bajos izq · brillo der', lados: [-0.8, -0.6, -0.3, 0, 0, 0.3, 0.6, 0.8] },
+  vozCentro: { nombre: 'Voz al centro, instrumentos a los lados', lados: [-0.6, 0.6, 0, 0, 0, -0.6, 0.6, -0.6] },
+  giro: { nombre: 'De izquierda a derecha', lados: [-1, -0.7, -0.4, -0.1, 0.1, 0.4, 0.7, 1] },
+};
+let estadoEco = { activo: false, perfil: 'centro', lados: [...PERFILES_ECO.centro.lados] };
+try {
+  const guardado = JSON.parse(localStorage.getItem(CLAVE_ECO));
+  if (guardado?.lados?.length === BANDAS.length) estadoEco = guardado;
+} catch { /* nada */ }
+
+function aplicarEco() {
+  ecualizador.ponerEco(estadoEco.activo ? estadoEco.lados : BANDAS.map(() => 0));
+  try { localStorage.setItem(CLAVE_ECO, JSON.stringify(estadoEco)); } catch { /* nada */ }
+}
+if (estadoEco.activo) ecualizador.ponerEco(estadoEco.lados);
+
+// Qué suele sonar en cada zona (para que sepas qué estás moviendo).
+const QUE_SUENA = ['Bombo', 'Bajo', 'Cuerpo', 'Voz', 'Guitarra', 'Ataque', 'Platillos', 'Aire'];
+
+function abrirModoEco() {
+  if (!hayReproductorNativo) {
+    abrirHoja({
+      titulo: '🎧 Modo eco',
+      subtitulo: 'Solo funciona en la APK nueva de Muz15 (con el reproductor nativo). Actualízala desde ⚙ → Buscar actualizaciones.',
+    });
+    return;
+  }
+  const panel = document.createElement('div');
+  panel.className = 'eq';
+  panel.innerHTML = `
+    <label class="eq__interruptor">
+      <span>Modo eco</span>
+      <input type="checkbox" role="switch">
+    </label>
+    <div class="eco__bandas"></div>
+    <div class="eq__perfiles"></div>`;
+  const interruptor = panel.querySelector('input[role="switch"]');
+  const bandas = panel.querySelector('.eco__bandas');
+  const perfiles = panel.querySelector('.eq__perfiles');
+
+  const controles = BANDAS.map((hz, i) => {
+    const fila = document.createElement('label');
+    fila.className = 'eco__banda';
+    fila.innerHTML = `
+      <span class="eco__nombre"><strong>${QUE_SUENA[i]}</strong> ${etiquetaHz(hz)}</span>
+      <span class="eco__lado">Izq</span>
+      <input type="range" min="-1" max="1" step="0.05" aria-label="${QUE_SUENA[i]}: izquierda o derecha">
+      <span class="eco__lado">Der</span>`;
+    const barra = fila.querySelector('input');
+    barra.addEventListener('input', () => {
+      estadoEco.lados[i] = Number(barra.value);
+      estadoEco.perfil = 'personalizado';
+      estadoEco.activo = true;
+      aplicarEco();
+      pintar();
+    });
+    // Doble toque: regresa esa zona al centro.
+    barra.addEventListener('dblclick', () => {
+      estadoEco.lados[i] = 0;
+      aplicarEco();
+      pintar();
+    });
+    bandas.append(fila);
+    return barra;
+  });
+
+  for (const [clave, { nombre, lados }] of Object.entries(PERFILES_ECO)) {
+    const boton = document.createElement('button');
+    boton.type = 'button';
+    boton.className = 'eq__perfil';
+    boton.dataset.perfil = clave;
+    boton.textContent = nombre;
+    boton.addEventListener('click', () => {
+      estadoEco = { activo: clave !== 'centro' || estadoEco.activo, perfil: clave, lados: [...lados] };
+      aplicarEco();
+      pintar();
+    });
+    perfiles.append(boton);
+  }
+
+  interruptor.addEventListener('change', () => {
+    estadoEco.activo = interruptor.checked;
+    aplicarEco();
+    pintar();
+  });
+
+  function pintar() {
+    interruptor.checked = estadoEco.activo;
+    panel.classList.toggle('eq--apagado', !estadoEco.activo);
+    controles.forEach((barra, i) => { barra.value = estadoEco.lados[i]; });
+    for (const boton of perfiles.children) {
+      boton.classList.toggle('eq__perfil--activo', boton.dataset.perfil === estadoEco.perfil);
+    }
+  }
+
+  pintar();
+  abrirHoja({
+    titulo: '🎧 Modo eco',
+    subtitulo: 'Mueve cada zona del sonido hacia un oído. Doble toque en una barra = al centro. Mejor con audífonos.',
+    contenido: panel,
+  });
 }
 
 /* ---------- Volumen seguro ---------- */
@@ -2126,7 +2357,15 @@ pedirAlmacenamientoPersistente();
 
 recargarLista()
   .then(async () => {
-    retomarUltima();
+    if (hayReproductorNativo) {
+      // Si la cerraste con música, el reproductor nativo siguió: mostramos lo que suena.
+      const yaSonaba = await reproductor.adoptarColaExistente((id) => cancionesLocales.find((c) => c.id === id)
+        ?? cancionesServidor.find((c) => c.id === id));
+      await asegurarArchivos(); // la primera vez: pasa tus canciones a archivos del teléfono
+      if (!yaSonaba) retomarUltima();
+    } else {
+      retomarUltima();
+    }
     ofrecerRecuperacion();
     avisarSiEsLaVersionDeChrome();
     actualizarAlbumesSolos();
