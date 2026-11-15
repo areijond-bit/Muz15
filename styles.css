@@ -510,6 +510,23 @@ button { font: inherit; color: inherit; }
 
 .casilla input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--color-acento); }
 
+/* Lista de "Quitar repetidas" */
+.repetidas {
+  list-style: none;
+  margin: 0 0 var(--espacio-m);
+  padding: 0;
+  max-height: 40dvh;
+  overflow-y: auto;
+}
+.repetidas li {
+  display: flex;
+  flex-direction: column;
+  padding: var(--espacio-s) 0;
+  border-bottom: 1px solid var(--color-borde);
+  font-size: var(--texto-s);
+}
+.repetidas span { color: var(--color-texto-suave); font-size: var(--texto-xs); }
+
 /* =========================================================
    ECUALIZADOR
    ========================================================= */

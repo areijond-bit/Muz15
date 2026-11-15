@@ -998,9 +998,103 @@ el.ajustes.addEventListener('click', () => {
     acciones: [
       { texto: `🎚 Ecualizador${estadoEq.activo ? `  ·  ${nombrePerfil()}` : ''}`, alElegir: abrirEcualizador },
       { texto: '⇄ Transición entre canciones', alElegir: elegirTransicion },
+      { texto: '🧹 Quitar canciones repetidas', alElegir: quitarRepetidas },
     ],
   });
 });
+
+/* ---------- Quitar repetidas ---------- */
+// Dos canciones son "la misma" si su título coincide quitando lo que va entre
+// paréntesis, como "(Remasterizado 2007)" o "(1)", y no tienen artistas distintos.
+// De cada grupo se queda la mejor copia: la que tiene artista, luego la que está
+// en una lista o vinculada, luego la que tiene portada, y si no la más antigua.
+
+const ARTISTAS_DESCONOCIDOS = new Set([SIN_ARTISTA, '[Unknown Artist]', '']);
+const tituloBase = (titulo) => normalizar(titulo).replace(/\(.*?\)|\[.*?\]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+const enAlgunaLista = (c) => listas.some((l) => l.canciones.includes(c.id));
+const estaVinculada = (c) => Boolean(c.siguienteFija) || cancionesLocales.some((o) => o.siguienteFija === c.id);
+
+function buscarRepetidas() {
+  const grupos = new Map();
+  for (const cancion of cancionesLocales) {
+    const clave = tituloBase(cancion.titulo);
+    if (!clave) continue;
+    if (!grupos.has(clave)) grupos.set(clave, []);
+    grupos.get(clave).push(cancion);
+  }
+
+  const resultado = [];
+  for (const grupo of grupos.values()) {
+    if (grupo.length < 2) continue;
+    // Mismo nombre pero artistas distintos y conocidos: son canciones diferentes.
+    const artistas = new Set(grupo.map((c) => c.artista).filter((a) => !ARTISTAS_DESCONOCIDOS.has(a)).map(normalizar));
+    if (artistas.size > 1) continue;
+    // Las listas y vínculos se pasan a la copia que queda, así que pesa más tener artista.
+    const puntos = (c) => (ARTISTAS_DESCONOCIDOS.has(c.artista) ? 0 : 4)
+      + (enAlgunaLista(c) ? 2 : 0) + (estaVinculada(c) ? 2 : 0) + (c.portada ? 1 : 0);
+    const ordenadas = [...grupo].sort((a, b) => puntos(b) - puntos(a) || a.agregada - b.agregada);
+    resultado.push({ queda: ordenadas[0], sobran: ordenadas.slice(1) });
+  }
+  return resultado;
+}
+
+function quitarRepetidas() {
+  const repetidas = buscarRepetidas();
+  const total = repetidas.reduce((suma, r) => suma + r.sobran.length, 0);
+  if (!total) return mostrarAviso('No hay canciones repetidas en este teléfono.', 3000);
+
+  const resumen = document.createElement('ul');
+  resumen.className = 'repetidas';
+  for (const { queda, sobran } of repetidas) {
+    const li = document.createElement('li');
+    li.innerHTML = '<strong></strong><span></span>';
+    li.children[0].textContent = `${queda.titulo} — ${queda.artista}`;
+    li.children[1].textContent = sobran.length === 1 ? 'se borra 1 copia' : `se borran ${sobran.length} copias`;
+    resumen.append(li);
+  }
+
+  abrirHoja({
+    titulo: `${total} ${total === 1 ? 'canción repetida' : 'canciones repetidas'}`,
+    subtitulo: 'Se queda la copia de cada una que aparece abajo; tus listas y vínculos pasan a esa copia.',
+    contenido: resumen,
+    acciones: [{
+      texto: `Borrar ${total} ${total === 1 ? 'repetida' : 'repetidas'}`,
+      peligro: true,
+      alElegir: () => borrarRepetidas(repetidas, total),
+    }],
+  });
+}
+
+async function borrarRepetidas(repetidas, total) {
+  for (const { queda, sobran } of repetidas) {
+    const idsSobran = new Set(sobran.map((c) => c.id));
+    // Las listas apuntan ahora a la copia que se queda (sin repetirla en la lista).
+    for (const lista of listas) {
+      if (!lista.canciones.some((id) => idsSobran.has(id))) continue;
+      // También en memoria, para que el siguiente grupo parta de la lista ya corregida.
+      lista.canciones = [...new Set(lista.canciones.map((id) => (idsSobran.has(id) ? queda.id : id)))];
+      await guardarLista({ ...lista });
+    }
+    // Y los vínculos también.
+    for (const otra of cancionesLocales) {
+      if (!idsSobran.has(otra.siguienteFija)) continue;
+      otra.siguienteFija = otra.id === queda.id ? null : queda.id; // nunca vinculada consigo misma
+      await actualizarCancion({ ...otra });
+    }
+    const vinculoHeredado = !queda.siguienteFija && sobran.find((c) => c.siguienteFija && c.siguienteFija !== queda.id);
+    if (vinculoHeredado) {
+      queda.siguienteFija = vinculoHeredado.siguienteFija;
+      await actualizarCancion({ ...queda });
+    }
+
+    for (const sobra of sobran) {
+      await borrarCancion(sobra.id);
+      reproductor.quitar(sobra.id);
+    }
+  }
+  await recargarLista();
+  mostrarAviso(`Listo: se borraron ${total} ${total === 1 ? 'canción repetida' : 'canciones repetidas'}.`, 4000);
+}
 
 function elegirTransicion() {
   const actual = reproductor.estado().fundido;
