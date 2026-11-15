@@ -240,7 +240,7 @@ grant execute on function public.top_audios(timestamptz, int) to anon, authentic
 -- Variedad: máximo 3 por artista.
 create or replace function public.recomendaciones(p_dispositivo text, p_limite int default 20)
 returns table (audio uuid, puntos double precision, razon text)
-language sql security definer set search_path = public as $
+language sql security definer set search_path = public as $$
 with
 yo as (select auth.uid() as id),
 mis_escuchas as (
@@ -335,7 +335,7 @@ select v.id, v.puntos, v.razon from variados v
 where v.n_artista <= 3
 order by v.puntos desc
 limit least(greatest(p_limite, 1), 50)
-$;
+$$;
 revoke all on function public.recomendaciones(text, int) from public;
 grant execute on function public.recomendaciones(text, int) to anon, authenticated;
 
