@@ -1,4 +1,4 @@
-# apk.yml — Compila la APK de Muz15 en GitHub y la publica en "Releases".
+# apk.yml — Compila la APK de Muzzy en GitHub y la publica en "Releases".
 #
 # Corre sola cuando cambia la parte nativa (android/, capacitor.config.json,
 # package.json) y también a mano desde la pestaña Actions → "APK" → Run workflow.
@@ -84,6 +84,6 @@ jobs:
           NUMERO: ${{ github.run_number }}
         run: |
           gh release create "apk-$NUMERO" "$RUNNER_TEMP/Muz15.apk" \
-            --title "Muz15 APK 1.$NUMERO" \
-            --notes "Descarga **Muz15.apk** en tu Android y ábrela para instalar (encima de la anterior, sin perder nada)." \
+            --title "Muzzy APK 1.$NUMERO" \
+            --notes "Muzzy: descarga **Muz15.apk** en tu Android y ábrela para instalar (encima de la anterior, sin perder nada). El archivo conserva su nombre para que las actualizaciones automáticas sigan funcionando." \
             --latest
