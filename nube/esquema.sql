@@ -180,15 +180,37 @@ create table if not exists public.escuchas (
 create index if not exists escuchas_cuando on public.escuchas (cuando);
 alter table public.escuchas enable row level security;
 
-create or replace function public.sumar_reproduccion(p_audio uuid)
-returns void language sql security definer set search_path = public as $$
+-- Cuentan también sin cuenta, con protección contra números inflados:
+--  - la misma canción en el mismo dispositivo: una vez cada 30 minutos;
+--  - desde la misma conexión: máximo 120 por hora.
+-- De la conexión solo se guarda una huella (md5), no la dirección.
+alter table public.escuchas add column if not exists dispositivo text;
+alter table public.escuchas add column if not exists origen text;
+create index if not exists escuchas_audio_dispositivo on public.escuchas (audio, dispositivo, cuando desc);
+create index if not exists escuchas_origen on public.escuchas (origen, cuando desc);
+
+drop function if exists public.sumar_reproduccion(uuid);
+create or replace function public.sumar_reproduccion(p_audio uuid, p_dispositivo text)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare
+  v_ip text := split_part(coalesce(current_setting('request.headers', true)::json ->> 'x-forwarded-for', ''), ',', 1);
+  v_origen text := md5(v_ip || ':muzzy');
+begin
+  if p_dispositivo is null or char_length(p_dispositivo) not between 8 and 64 then return false; end if;
+  if exists (
+    select 1 from public.escuchas
+    where audio = p_audio and dispositivo = p_dispositivo and cuando > now() - interval '30 minutes'
+  ) then return false; end if;
+  if (select count(*) from public.escuchas where origen = v_origen and cuando > now() - interval '1 hour') >= 120 then
+    return false;
+  end if;
   insert into public.reproducciones (audio, veces) values (p_audio, 1)
   on conflict (audio) do update set veces = public.reproducciones.veces + 1;
-  insert into public.escuchas (audio) values (p_audio);
-$$;
-revoke all on function public.sumar_reproduccion(uuid) from public;
-grant execute on function public.sumar_reproduccion(uuid) to authenticated;
-revoke execute on function public.sumar_reproduccion(uuid) from anon;  -- sin cuenta, no suma
+  insert into public.escuchas (audio, dispositivo, origen) values (p_audio, p_dispositivo, v_origen);
+  return true;
+end $$;
+revoke all on function public.sumar_reproduccion(uuid, text) from public;
+grant execute on function public.sumar_reproduccion(uuid, text) to anon, authenticated;
 
 -- Los más escuchados desde una fecha (máximo 100).
 create or replace function public.top_audios(p_desde timestamptz, p_limite int default 10)

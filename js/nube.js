@@ -746,8 +746,9 @@ export async function top(periodo) {
 
 /** Suma una reproducción (alguien la escuchó al menos 30 s). */
 export async function contarReproduccion(audio) {
-  if (!conectado() || !audio) return;
-  const { error } = await db().rpc('sumar_reproduccion', { p_audio: audio });
+  // También sin cuenta: la base de datos solo cuenta una vez cada 30 min por dispositivo.
+  if (!db() || !audio) return;
+  const { error } = await db().rpc('sumar_reproduccion', { p_audio: audio, p_dispositivo: dispositivo().id });
   if (error) console.warn('Nube (reproducción):', error.message);
 }
 
