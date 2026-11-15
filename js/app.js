@@ -1135,12 +1135,13 @@ const REPO = 'areijond-bit/Muz15';
 const DESCARGA_APK = `https://github.com/${REPO}/releases/latest/download/Muz15.apk`;
 let versionApk = null; // { numero, nombre } de la APK instalada
 
+/** @returns {Promise<boolean>} true si hay una APK más nueva (y ya se mostró el aviso) */
 async function revisarActualizacion() {
-  if (!esApk || !AppNativa) return;
+  if (!esApk || !AppNativa) return false;
   try {
     const info = await AppNativa.getInfo();
     versionApk = { numero: Number(info.build), nombre: info.version };
-    const ultima = await (await fetch(`https://api.github.com/repos/${REPO}/releases/latest`)).json();
+    const ultima = await (await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { cache: 'no-store' })).json();
     const numeroUltima = Number(String(ultima.tag_name ?? '').replace(/\D/g, ''));
     if (numeroUltima > versionApk.numero) {
       abrirHoja({
@@ -1152,12 +1153,54 @@ async function revisarActualizacion() {
           alElegir: () => { location.href = DESCARGA_APK; },
         }],
       });
+      return true;
     }
   } catch (error) {
     console.warn('No se pudo revisar si hay versión nueva:', error.message);
   }
+  return false;
 }
 revisarActualizacion();
+
+/** La versión de la app guardada en el teléfono (ej. "v14"). */
+async function versionWeb() {
+  try {
+    return (await caches.keys()).find((k) => k.startsWith('muz15-'))?.replace('muz15-', '') ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ⚙ → Buscar actualizaciones: revisa la app (pantallas y funciones) y, en la
+ * APK, también si hay una APK nueva. Lo nuevo de la app se aplica solo.
+ */
+async function buscarActualizaciones() {
+  if (!navigator.onLine) return mostrarAviso('Sin internet: conéctate para buscar actualizaciones.', 4000);
+  mostrarAviso('Buscando actualizaciones…');
+
+  let hayAppNueva = false;
+  try {
+    const registro = await navigator.serviceWorker?.getRegistration();
+    if (registro) {
+      await registro.update();
+      hayAppNueva = Boolean(registro.installing || registro.waiting);
+    }
+  } catch (error) {
+    console.warn('No se pudo revisar la app:', error.message);
+  }
+
+  const hayApkNueva = await revisarActualizacion(); // si la hay, ya abrió su aviso
+
+  if (hayAppNueva) {
+    // Al terminar de bajar, la app se recarga sola (o pregunta, si está sonando música).
+    mostrarAviso('Hay mejoras nuevas: se aplican en unos segundos.', 6000);
+  } else if (!hayApkNueva) {
+    const partes = [`app ${await versionWeb() ?? ''}`.trim()];
+    if (versionApk) partes.push(`APK ${versionApk.nombre}`);
+    mostrarAviso(`Ya tienes la versión más nueva (${partes.join(' · ')}).`, 4000);
+  }
+}
 
 /* ---------- Ajustes ---------- */
 
@@ -1184,6 +1227,7 @@ el.ajustes.addEventListener('click', () => {
       { texto: `🎚 Ecualizador${estadoEq.activo ? `  ·  ${nombrePerfil()}` : ''}`, alElegir: abrirEcualizador },
       { texto: '⇄ Transición entre canciones', alElegir: elegirTransicion },
       { texto: '🧹 Quitar canciones repetidas', alElegir: quitarRepetidas },
+      { texto: '⟳ Buscar actualizaciones', alElegir: buscarActualizaciones },
     ],
   });
 });
