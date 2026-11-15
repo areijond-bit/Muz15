@@ -196,16 +196,16 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
 
     activa.currentTime = 0;
     const vincularSinFundido = lista[cargada.get(anterior).indice]?.siguienteFija === lista[indice].id;
-    if (conFundido && fundido > 0 && !anterior.paused && !vincularSinFundido) {
-      empezarFundido(anterior);
-    } else {
-      vaciar(anterior);
-    }
+    const conFundidoAhora = conFundido && fundido > 0 && !anterior.paused && !vincularSinFundido;
 
     actualizarMediaSession(lista[indice]);
     avisar();
     avisarProgreso();
 
+    // Primero arranca la nueva y DESPUÉS se apaga la anterior. Si por un instante
+    // no sonara nada, Android puede quitar la notificación de "multimedia" y,
+    // con la pantalla bloqueada, ya no dejar que arranque la siguiente.
+    if (conFundidoAhora) empezarFundido(anterior);
     try {
       await activa.play();
     } catch (error) {
@@ -213,6 +213,7 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
       // grave: la canción queda cargada y el siguiente toque en ▶ la arranca.
       console.warn('No se pudo reproducir automáticamente:', error.message);
     }
+    if (!conFundidoAhora) vaciar(anterior);
     if (!fundiendo) prepararSiguiente();
   }
 
