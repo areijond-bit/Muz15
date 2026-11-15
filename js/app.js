@@ -3424,11 +3424,11 @@ function botonPerfil(texto, { acento = false, alTocar }) {
 async function pintarVistaPerfil() {
   const yo = nube.perfil();
   const caja = el.perfilContenido;
-  if (!usuarioNube || !yo) return pintarPerfilSinCuenta();
+  if (!perfilVisto && (!usuarioNube || !yo)) return pintarPerfilSinCuenta(); // tu pestaña, sin cuenta
 
   if (albumVisto) return pintarAlbumDePerfil();
   const id = perfilVisto?.id ?? yo.id;
-  const esMio = id === yo.id;
+  const esMio = id === yo?.id;
   const este = ++pintandoPerfil;
   if (!caja.dataset.id || caja.dataset.id !== id) caja.replaceChildren(textoCargando());
   caja.dataset.id = id;
@@ -3457,8 +3457,8 @@ async function pintarVistaPerfil() {
   const perfil = red.perfiles.get(id) ?? perfilVisto ?? yo;
   const seguidores = red.siguiendo.filter((s) => s.seguido === id).map((s) => s.seguidor);
   const seguidos = red.siguiendo.filter((s) => s.seguidor === id).map((s) => s.seguido);
-  const yoSigo = new Set(red.siguiendo.filter((s) => s.seguidor === yo.id).map((s) => s.seguido));
-  const meSiguen = new Set(red.siguiendo.filter((s) => s.seguido === yo.id).map((s) => s.seguidor));
+  const yoSigo = new Set(red.siguiendo.filter((s) => s.seguidor === yo?.id).map((s) => s.seguido));
+  const meSiguen = new Set(red.siguiendo.filter((s) => s.seguido === yo?.id).map((s) => s.seguidor));
 
   // Barra de arriba: ← (si es de otro) · @usuario · ☰ (si es el tuyo)
   const barra = document.createElement('div');
@@ -3730,7 +3730,22 @@ function filaPersona(perfil, { siguiendo, alTocar, alSeguir }) {
   return li;
 }
 
+/** Sin cuenta se puede ver y escuchar todo; para esto (subir, seguir, like, comentar) sí hace falta. */
+function pedirCuenta(para) {
+  if (nube.conectado()) return false;
+  if (usuarioNube) { pedirPerfil(); return true; } // entró pero le falta su perfil
+  const { si, motivo } = puedeEntrar();
+  let cerrar = () => {};
+  cerrar = abrirHoja({
+    titulo: `Para ${para} necesitas una cuenta`,
+    subtitulo: si ? 'Es gratis y tarda un minuto. Lo demás lo puedes ver y escuchar sin cuenta.' : motivo,
+    contenido: si ? formularioEntrar(() => cerrar()) : undefined,
+  });
+  return true;
+}
+
 async function cambiarSeguir(perfil, loSigo) {
+  if (pedirCuenta('seguir a alguien')) return;
   try {
     if (loSigo) await nube.dejarDeSeguir(perfil.id);
     else await nube.seguir(perfil.id);
@@ -3890,24 +3905,13 @@ async function pintarInicio() {
   }
   el.inicioContenido.replaceChildren(...partes);
 
-  if (!nube.conectado()) {
-    if (puedeEntrar().si) {
-      const invitacion = document.createElement('div');
-      invitacion.className = 'perfil-hoja';
-      invitacion.innerHTML = '<p class="perfil-hoja__dato">Entra para ver lo que suben tus amigos y tener tu música en todos tus dispositivos.</p>';
-      invitacion.append(usuarioNube
-        ? botonPerfil('Crear mi perfil', { acento: true, alTocar: pedirPerfil })
-        : botonPerfil('Entrar o crear cuenta', { acento: true, alTocar: ofrecerCuenta }));
-      el.inicioContenido.append(invitacion);
-    }
-    return;
-  }
+  if (!puedeEntrar().si) return;
 
-  // Lo nuevo: de quienes sigues primero, y de todos
+  // Lo nuevo: de quienes sigues primero, y de todos (también sin cuenta)
   try {
     const [red, nuevos] = await Promise.all([nube.red(), nube.explorar()]);
     if (este !== pintandoInicio) return;
-    const yoSigo = new Set(red.siguiendo.filter((s) => s.seguidor === perfil.id).map((s) => s.seguido));
+    const yoSigo = new Set(red.siguiendo.filter((s) => s.seguidor === perfil?.id).map((s) => s.seguido));
     const canciones = nuevos.map(comoCancion);
     const deQuienesSigues = canciones.filter((c) => yoSigo.has(c.dueno)).slice(0, 12);
     if (deQuienesSigues.length) {
@@ -3916,14 +3920,22 @@ async function pintarInicio() {
         reproductor.reproducirLista(deQuienesSigues, i);
       })))));
     }
-    const todos = canciones.filter((c) => c.dueno !== perfil.id).slice(0, 10);
+    const todos = canciones.filter((c) => c.dueno !== perfil?.id).slice(0, 10);
     if (todos.length) {
       const lista = document.createElement('ul');
       lista.className = 'lista';
       lista.append(...todos.map((cancion, i) => filaAudio(cancion, todos, i)));
       el.inicioContenido.append(seccionInicio('Nuevo en Muzzy', lista));
     }
-    if (!yoSigo.size && red.perfiles.size > 1) {
+    if (!nube.conectado()) {
+      const invitacion = document.createElement('div');
+      invitacion.className = 'perfil-hoja';
+      invitacion.innerHTML = '<p class="perfil-hoja__dato">¿Tú también haces música? Crea tu cuenta para subir tus audios, seguir gente y comentar.</p>';
+      invitacion.append(usuarioNube
+        ? botonPerfil('Crear mi perfil', { acento: true, alTocar: pedirPerfil })
+        : botonPerfil('Entrar o crear cuenta', { acento: true, alTocar: ofrecerCuenta }));
+      el.inicioContenido.append(invitacion);
+    } else if (!yoSigo.size && red.perfiles.size > 1) {
       const ir = botonPerfil('Busca a tus amigos', { acento: true, alTocar: () => mostrarVista('explorar') });
       el.inicioContenido.append(seccionInicio('Sigue a tus amigos para ver lo que suben', ir));
     }
@@ -3938,7 +3950,7 @@ function abrirCrear() {
     titulo: 'Crear',
     subtitulo: nube.conectado() ? 'Lo que subes lo encuentran tus amigos en Buscar.' : undefined,
     acciones: [
-      { icono: 'subir', texto: 'Subir audios (MP3, M4A o MP4)', alElegir: () => el.importar.click() },
+      { icono: 'subir', texto: 'Subir audios (MP3, M4A o MP4)', alElegir: () => { if (!pedirCuenta('subir audios')) el.importar.click(); } },
       { icono: 'playlist', texto: 'Nueva playlist', alElegir: () => crearLista(null, 'playlist') },
       { icono: 'album', texto: 'Nuevo álbum', alElegir: () => crearLista(null, 'album') },
     ],
@@ -4100,16 +4112,13 @@ let resultadosExplorar = [];
 let pedidoExplorar = 0;
 
 async function abrirExplorar({ masResultados = false } = {}) {
-  const conCuenta = nube.conectado();
-  el.explorarSinCuenta.hidden = conCuenta;
-  el.explorarContenido.hidden = !conCuenta;
-  if (!conCuenta) {
-    const { si, motivo } = puedeEntrar();
-    el.explorarMotivo.textContent = !si ? motivo
-      : usuarioNube ? 'Te falta crear tu perfil.'
-        : 'Con tu cuenta ves los audios de tus amigos y tienes tu música en todos tus dispositivos.';
-    el.explorarEntrar.hidden = !si;
-    el.explorarEntrar.textContent = usuarioNube ? 'Crear mi perfil' : 'Entrar o crear cuenta';
+  // Para ver y escuchar no hace falta cuenta (solo que Muzzy esté conectado a su nube).
+  const { si: hayNube, motivo } = puedeEntrar();
+  el.explorarSinCuenta.hidden = hayNube;
+  el.explorarContenido.hidden = !hayNube;
+  if (!hayNube) {
+    el.explorarMotivo.textContent = motivo;
+    el.explorarEntrar.hidden = true;
     return;
   }
   paginaExplorar = masResultados ? paginaExplorar + 1 : 0;
@@ -4212,11 +4221,38 @@ function botonGuardarAudio(cancion) {
 }
 
 async function guardarAudio(cancion) {
+  if (!nube.conectado()) return descargarSinCuenta(cancion);
   try {
     await nube.guardarEnBiblioteca({ id: cancion.idNube });
     mostrarAviso(`"${cancion.titulo}" se guarda en tu biblioteca (en todos tus dispositivos).`, 3000);
   } catch (error) {
     mostrarAviso(`No se pudo guardar: ${error.message}`, 4000);
+  }
+}
+
+/** Sin cuenta: la baja a Mis descargas de este dispositivo. Si luego entras, se suma a tu cuenta. */
+async function descargarSinCuenta(cancion) {
+  mostrarAviso(`Descargando "${cancion.titulo}"…`);
+  try {
+    const [audio, portada] = await Promise.all([
+      fetch(cancion.archivo).then((r) => { if (!r.ok) throw new Error(`no se pudo bajar (${r.status})`); return r.arrayBuffer(); }),
+      cancion.portadaUrl ? fetch(cancion.portadaUrl).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null) : null,
+    ]);
+    const tipo = /\.webm(\?|$)/.test(cancion.archivo) ? 'audio/webm' : 'audio/mpeg';
+    await guardarCancion({
+      id: cancion.idNube, idNube: cancion.idNube, enNube: false,
+      dueno: cancion.dueno, duenoUsuario: cancion.duenoUsuario,
+      titulo: cancion.titulo, artista: cancion.artista ?? '', album: cancion.album ?? '',
+      portada: portada?.byteLength ? { datos: portada, tipo: 'image/jpeg' } : null,
+      portadaNube: cancion.portadaUrl ?? null, portadaBytes: portada?.byteLength ?? 0,
+      tipo, nombreArchivo: `${cancion.titulo}.${tipo === 'audio/webm' ? 'webm' : 'mp3'}`,
+      agregada: Date.now(),
+    }, audio);
+    await recargarLista();
+    if (vistaActual === 'explorar') pintarExplorar();
+    mostrarAviso(`"${cancion.titulo}" está en Mis descargas.`, 3000);
+  } catch (error) {
+    mostrarAviso(`No se pudo descargar: ${error.message}`, 4000);
   }
 }
 
@@ -4446,8 +4482,10 @@ async function pintarSocial(cancion) {
   const caja = el.pantallaSocial;
   const audio = pantallaAudio;
   const este = ++pintandoSocial;
-  if (!nube.conectado()) return caja.replaceChildren(textoSocial('Entra a tu cuenta (en Perfil) para dar me gusta, ver quién la subió y comentar.'));
-  if (!audio) return caja.replaceChildren(textoSocial('Esta canción todavía no está en tu cuenta. En cuanto se suba, aquí verás los me gusta y los comentarios.'));
+  if (!puedeEntrar().si) return caja.replaceChildren();
+  if (!audio) return caja.replaceChildren(textoSocial(nube.conectado()
+    ? 'Esta canción todavía no está en tu cuenta. En cuanto se suba, aquí verás los me gusta y los comentarios.'
+    : 'Esta canción solo está en este dispositivo.'));
 
   let datos;
   try {
@@ -4476,6 +4514,7 @@ async function pintarSocial(cancion) {
     boton.setAttribute('aria-label', etiqueta);
     boton.innerHTML = `${icono(nombreIcono, 22)}<span>${cuantos.toLocaleString('es-MX')}</span>`;
     boton.addEventListener('click', async () => {
+      if (pedirCuenta(valor > 0 ? 'dar me gusta' : 'dar no me gusta')) return;
       const nuevo = reacciones.mia === valor ? 0 : valor;
       try {
         await nube.reaccionar(audio, nuevo);
@@ -4499,8 +4538,8 @@ async function pintarSocial(cancion) {
   info.innerHTML = '<p class="pantalla__nota">Subida por</p><p class="persona__usuario"></p>';
   info.children[1].textContent = dueno ? `@${dueno.usuario}` : 'alguien';
   subio.append(crearAvatar(dueno, 44), info);
-  if (dueno && dueno.id !== yo.id) {
-    const loSigo = red.siguiendo.some((s) => s.seguidor === yo.id && s.seguido === dueno.id);
+  if (dueno && dueno.id !== yo?.id) {
+    const loSigo = red.siguiendo.some((s) => s.seguidor === yo?.id && s.seguido === dueno.id);
     subio.append(botonPerfil(loSigo ? 'Siguiendo' : 'Seguir', {
       acento: !loSigo,
       alTocar: async (evento) => {
@@ -4520,8 +4559,12 @@ async function pintarSocial(cancion) {
   formulario.className = 'pantalla__comentar';
   formulario.innerHTML = '<input class="campo__entrada" maxlength="500" placeholder="Agrega un comentario…" aria-label="Escribe un comentario"><button class="boton-perfil boton-perfil--acento" type="submit">Enviar</button>';
   formulario.prepend(crearAvatar(yo, 32));
+  formulario.querySelector('input').addEventListener('focus', (evento) => {
+    if (pedirCuenta('comentar')) evento.target.blur();
+  });
   formulario.addEventListener('submit', async (evento) => {
     evento.preventDefault();
+    if (pedirCuenta('comentar')) return;
     const campo = formulario.querySelector('input');
     const texto = campo.value.trim();
     if (!texto) return;
@@ -4547,7 +4590,7 @@ async function pintarSocial(cancion) {
     cuerpo.children[0].textContent = `@${comentario.perfil?.usuario ?? 'alguien'} · ${haceCuanto(comentario.creado)}`;
     cuerpo.children[1].textContent = comentario.texto;
     li.append(crearAvatar(comentario.perfil, 32), cuerpo);
-    if (comentario.usuario === yo.id || fila.dueno === yo.id) {
+    if (yo && (comentario.usuario === yo.id || fila.dueno === yo.id)) {
       const borrar = document.createElement('button');
       borrar.className = 'boton-icono comentario__borrar';
       borrar.setAttribute('aria-label', 'Borrar comentario');

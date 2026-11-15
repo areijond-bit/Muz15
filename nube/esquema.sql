@@ -13,7 +13,7 @@
 --   comentarios lo que escriben en cada audio
 --   reproducciones cuántas veces se ha escuchado cada audio
 --
--- Seguridad (RLS): cualquiera con cuenta puede VER perfiles y audios; solo el dueño
+-- Seguridad (RLS): cualquiera (aun sin cuenta) puede VER perfiles y audios; solo el dueño
 -- puede cambiar o borrar lo suyo. Tu biblioteca y lo que escuchas solo los ves tú.
 
 create extension if not exists pgcrypto;
@@ -28,7 +28,7 @@ create table if not exists public.perfiles (
 );
 alter table public.perfiles enable row level security;
 drop policy if exists "perfiles: todos los ven" on public.perfiles;
-create policy "perfiles: todos los ven" on public.perfiles for select to authenticated using (true);
+create policy "perfiles: todos los ven" on public.perfiles for select to anon, authenticated using (true);
 drop policy if exists "perfiles: el tuyo lo creas tú" on public.perfiles;
 create policy "perfiles: el tuyo lo creas tú" on public.perfiles for insert to authenticated with check (id = auth.uid());
 drop policy if exists "perfiles: el tuyo lo cambias tú" on public.perfiles;
@@ -55,7 +55,7 @@ create index if not exists audios_creado on public.audios (creado desc);
 create index if not exists audios_huella on public.audios (huella);
 alter table public.audios enable row level security;
 drop policy if exists "audios: todos los ven" on public.audios;
-create policy "audios: todos los ven" on public.audios for select to authenticated using (true);
+create policy "audios: todos los ven" on public.audios for select to anon, authenticated using (true);
 drop policy if exists "audios: subes a tu nombre" on public.audios;
 create policy "audios: subes a tu nombre" on public.audios for insert to authenticated with check (dueno = auth.uid());
 drop policy if exists "audios: solo el dueño cambia" on public.audios;
@@ -96,7 +96,7 @@ create table if not exists public.listas (
 create index if not exists listas_dueno on public.listas (dueno);
 alter table public.listas enable row level security;
 drop policy if exists "listas: las tuyas y las públicas" on public.listas;
-create policy "listas: las tuyas y las públicas" on public.listas for select to authenticated using (dueno = auth.uid() or publica);
+create policy "listas: las tuyas y las públicas" on public.listas for select to anon, authenticated using (dueno = auth.uid() or publica);
 drop policy if exists "listas: solo el dueño escribe" on public.listas;
 create policy "listas: solo el dueño escribe" on public.listas for all to authenticated using (dueno = auth.uid()) with check (dueno = auth.uid());
 drop trigger if exists listas_cambiada on public.listas;
@@ -115,7 +115,7 @@ create table if not exists public.siguiendo (
 create index if not exists siguiendo_seguido on public.siguiendo (seguido);
 alter table public.siguiendo enable row level security;
 drop policy if exists "siguiendo: todos lo ven" on public.siguiendo;
-create policy "siguiendo: todos lo ven" on public.siguiendo for select to authenticated using (true);
+create policy "siguiendo: todos lo ven" on public.siguiendo for select to anon, authenticated using (true);
 drop policy if exists "siguiendo: sigues tú" on public.siguiendo;
 create policy "siguiendo: sigues tú" on public.siguiendo for insert to authenticated with check (seguidor = auth.uid());
 -- (seguir dos veces a la misma persona no falla: la app usa upsert)
@@ -135,7 +135,7 @@ create table if not exists public.reacciones (
 create index if not exists reacciones_audio on public.reacciones (audio);
 alter table public.reacciones enable row level security;
 drop policy if exists "reacciones: todos las ven" on public.reacciones;
-create policy "reacciones: todos las ven" on public.reacciones for select to authenticated using (true);
+create policy "reacciones: todos las ven" on public.reacciones for select to anon, authenticated using (true);
 drop policy if exists "reacciones: la tuya la pones tú" on public.reacciones;
 create policy "reacciones: la tuya la pones tú" on public.reacciones for all to authenticated using (usuario = auth.uid()) with check (usuario = auth.uid());
 
@@ -150,7 +150,7 @@ create table if not exists public.comentarios (
 create index if not exists comentarios_audio on public.comentarios (audio, creado desc);
 alter table public.comentarios enable row level security;
 drop policy if exists "comentarios: todos los ven" on public.comentarios;
-create policy "comentarios: todos los ven" on public.comentarios for select to authenticated using (true);
+create policy "comentarios: todos los ven" on public.comentarios for select to anon, authenticated using (true);
 drop policy if exists "comentarios: comentas a tu nombre" on public.comentarios;
 create policy "comentarios: comentas a tu nombre" on public.comentarios for insert to authenticated with check (usuario = auth.uid());
 -- Borra el que lo escribió o el dueño del audio.
@@ -167,7 +167,7 @@ create table if not exists public.reproducciones (
 );
 alter table public.reproducciones enable row level security;
 drop policy if exists "reproducciones: todos las ven" on public.reproducciones;
-create policy "reproducciones: todos las ven" on public.reproducciones for select to authenticated using (true);
+create policy "reproducciones: todos las ven" on public.reproducciones for select to anon, authenticated using (true);
 create or replace function public.sumar_reproduccion(p_audio uuid)
 returns void language sql security definer set search_path = public as $$
   insert into public.reproducciones (audio, veces) values (p_audio, 1)
@@ -190,7 +190,7 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke all on function public.veces_guardado(uuid[]) from public;
 grant execute on function public.veces_guardado(uuid[]) to authenticated;
-revoke execute on function public.veces_guardado(uuid[]) from anon;
+grant execute on function public.veces_guardado(uuid[]) to anon;  -- solo da números: también sin cuenta
 
 -- ---------- Lo que estás escuchando ----------
 create table if not exists public.escuchando (

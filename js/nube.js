@@ -99,8 +99,10 @@ function arrancar() {
 }
 
 async function olvidarMarcas() {
+  // Las canciones conservan de qué audio son (así se suman a tu biblioteca sin volver a
+  // subirlas); solo se olvida que ya estaban "en tu cuenta" (era la de antes, o ninguna).
   for (const c of await listarCanciones()) {
-    if (c.idNube || c.enNube) await actualizarCancion({ ...c, idNube: null, enNube: false }, { desdeNube: true });
+    if (c.enNube) await actualizarCancion({ ...c, enNube: false }, { desdeNube: true });
   }
   for (const l of await listarListas()) {
     if (l.idNube || l.enNube) await guardarLista({ ...l, idNube: null, enNube: false }, { desdeNube: true });
@@ -680,7 +682,7 @@ export async function reaccionesDe(audio) {
   const contar = (valor) => db().from('reacciones').select('audio', { count: 'exact', head: true }).eq('audio', audio).eq('valor', valor);
   const [likes, dislikes, mia] = await Promise.all([
     contar(1), contar(-1),
-    db().from('reacciones').select('valor').eq('audio', audio).eq('usuario', yo).maybeSingle(),
+    yo ? db().from('reacciones').select('valor').eq('audio', audio).eq('usuario', yo).maybeSingle() : { data: null }, // sin cuenta: no hay "tuya"
   ]);
   const error = likes.error ?? dislikes.error ?? mia.error;
   if (error) throw traducir(error);
