@@ -79,10 +79,10 @@ function crc32(buf) {
 }
 
 // Ícono de la app: "15" en el color de acento sobre fondo oscuro.
-function icono(tamano) {
+// "celda" = tamaño de cada cuadrito del dígito (más chico = "15" más chico).
+function icono(tamano, celda = 0.058) {
   const l = lienzo(tamano);
   l.pintar(() => FONDO);
-  const celda = 0.058;                 // tamaño de cada cuadrito del dígito
   const anchoTexto = celda * 11;       // 5 + 1 de separación + 5
   const x0 = (1 - anchoTexto) / 2;
   const y0 = (1 - celda * 7) / 2;
@@ -113,3 +113,20 @@ mkdirSync('icons', { recursive: true });
 for (const t of [180, 192, 512]) writeFileSync(`icons/icono-${t}.png`, icono(t));
 writeFileSync('icons/portada.png', portada(512));
 console.log('Íconos creados en /icons');
+
+// APK de Android: un ícono por densidad de pantalla. El "foreground" es la capa
+// del ícono adaptable; Android le recorta los bordes, así que el "15" va más chico.
+const RES = 'android/app/src/main/res';
+const DENSIDADES = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
+for (const [densidad, escala] of Object.entries(DENSIDADES)) {
+  const carpeta = `${RES}/mipmap-${densidad}`;
+  mkdirSync(carpeta, { recursive: true });
+  writeFileSync(`${carpeta}/ic_launcher.png`, icono(48 * escala));
+  writeFileSync(`${carpeta}/ic_launcher_round.png`, icono(48 * escala));
+  writeFileSync(`${carpeta}/ic_launcher_foreground.png`, icono(108 * escala, 0.04));
+}
+// Pantalla de carga: negra con el "15".
+for (const carpeta of ['drawable', ...Object.keys(DENSIDADES).flatMap((d) => [`drawable-port-${d}`, `drawable-land-${d}`])]) {
+  writeFileSync(`${RES}/${carpeta}/splash.png`, icono(480, 0.025));
+}
+console.log('Íconos de Android creados');

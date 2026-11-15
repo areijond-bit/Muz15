@@ -1,0 +1,17 @@
+{
+  "appId": "com.areijond.muz15",
+  "appName": "Muz15",
+  "webDir": "nativo/sin-conexion",
+  "server": {
+    "url": "https://areijond-bit.github.io/Muz15/",
+    "errorPath": "index.html"
+  },
+  "android": {
+    "backgroundColor": "#000000"
+  },
+  "plugins": {
+    "MediaSession": {
+      "foregroundService": "duringPlayback"
+    }
+  }
+}

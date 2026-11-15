@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Muz15</string>
+    <string name="title_activity_main">Muz15</string>
+    <string name="package_name">com.areijond.muz15</string>
+    <string name="custom_url_scheme">com.areijond.muz15</string>
+</resources>

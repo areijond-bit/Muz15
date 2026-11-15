@@ -1,0 +1,80 @@
+# apk.yml — Compila la APK de Muz15 en GitHub y la publica en "Releases".
+#
+# Corre sola cuando cambia la parte nativa (android/, capacitor.config.json,
+# package.json) y también a mano desde la pestaña Actions → "APK" → Run workflow.
+# Los cambios normales de la app (HTML, CSS, JS) NO necesitan APK nueva: la APK
+# carga la página de GitHub Pages y se actualiza sola.
+#
+# Necesita dos secretos del repositorio (Settings → Secrets and variables → Actions):
+#   MUZ15_KEYSTORE_BASE64    la llave de firma, en base64
+#   MUZ15_KEYSTORE_PASSWORD  su contraseña
+
+name: APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - 'capacitor.config.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'nativo/**'
+      - '.github/workflows/apk.yml'
+
+permissions:
+  contents: write # para publicar la APK en Releases
+
+concurrency:
+  group: apk
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Instalar Capacitor y copiar la configuración a Android
+        run: |
+          npm ci
+          npx cap sync android
+
+      - name: Preparar la llave de firma
+        env:
+          LLAVE: ${{ secrets.MUZ15_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$LLAVE" ]; then echo "Falta el secreto MUZ15_KEYSTORE_BASE64"; exit 1; fi
+          echo "$LLAVE" | base64 -d > "$RUNNER_TEMP/muz15.keystore"
+
+      - name: Compilar la APK
+        working-directory: android
+        env:
+          MUZ15_KEYSTORE: ${{ runner.temp }}/muz15.keystore
+          MUZ15_KEYSTORE_PASSWORD: ${{ secrets.MUZ15_KEYSTORE_PASSWORD }}
+          MUZ15_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/Muz15.apk"
+
+      - name: Publicar en Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMERO: ${{ github.run_number }}
+        run: |
+          gh release create "apk-$NUMERO" "$RUNNER_TEMP/Muz15.apk" \
+            --title "Muz15 APK 1.$NUMERO" \
+            --notes "Descarga **Muz15.apk** en tu Android y ábrela para instalar (encima de la anterior, sin perder nada)." \
+            --latest

@@ -1,0 +1,19 @@
+{
+  "name": "muz15",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Mi música, sin internet. App Android (Capacitor) que carga la PWA de GitHub Pages.",
+  "scripts": {
+    "servidor": "node tools/servidor.mjs",
+    "android:sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/core": "^8.6.2",
+    "@capgo/capacitor-media-session": "^8.1.11"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.2"
+  }
+}

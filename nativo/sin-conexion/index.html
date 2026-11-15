@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Muz15</title>
+  <!--
+    Pantalla de emergencia de la APK: solo aparece si Muz15 no pudo cargarse
+    desde internet y tampoco tenía una copia guardada (por ejemplo, la primera
+    vez que se abre sin conexión). Normalmente nunca se ve.
+  -->
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #000; color: #fff; font-family: sans-serif; text-align: center; }
+    h1 { font-size: 2rem; margin: 0 0 8px; }
+    h1 span { color: #a8ff1a; }
+    p { color: #a7a7a7; max-width: 300px; line-height: 1.5; }
+    button { margin-top: 16px; padding: 14px 28px; border: 0; border-radius: 999px; background: #a8ff1a; color: #000; font-weight: 700; font-size: 1rem; }
+  </style>
+</head>
+<body>
+  <div>
+    <h1>Muz<span>15</span></h1>
+    <p>No se pudo abrir la app. Conéctate a internet una vez para que se guarde en el teléfono; después funciona sin conexión.</p>
+    <button onclick="location.href = 'https://areijond-bit.github.io/Muz15/'">Reintentar</button>
+  </div>
+</body>
+</html>
