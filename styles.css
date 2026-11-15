@@ -66,6 +66,9 @@ body {
 
 button { font: inherit; color: inherit; }
 
+/* Que "hidden" siempre oculte, aunque el elemento tenga display: flex */
+[hidden] { display: none !important; }
+
 /* =========================================================
    CABECERA
    ========================================================= */
@@ -103,6 +106,107 @@ button { font: inherit; color: inherit; }
   background: var(--color-acento);
   color: var(--color-texto-sobre-acento);
 }
+
+.boton--ancho { width: 100%; justify-content: center; padding: var(--espacio-m); }
+
+.boton--discreto {
+  display: block;
+  margin: var(--espacio-l) auto 0;
+  background: transparent;
+  color: var(--color-texto-suave);
+  font-weight: var(--peso-normal);
+}
+
+/* =========================================================
+   PESTAÑAS
+   ========================================================= */
+.pestanas {
+  display: flex;
+  gap: var(--espacio-s);
+  padding: 0 var(--espacio-m) var(--espacio-m);
+}
+
+.pestana {
+  padding: var(--espacio-s) var(--espacio-m);
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio-redondo);
+  background: transparent;
+  color: var(--color-texto-suave);
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  cursor: pointer;
+}
+
+.pestana--activa {
+  border-color: var(--color-texto);
+  background: var(--color-texto);
+  color: var(--color-fondo);
+}
+
+/* =========================================================
+   FORMULARIO DEL SERVIDOR
+   ========================================================= */
+.formulario {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espacio-m);
+  max-width: 420px;
+  margin: var(--espacio-m) auto;
+}
+
+.formulario__texto { margin: 0; line-height: 1.5; }
+
+.formulario__nota {
+  margin: 0;
+  color: var(--color-texto-suave);
+  font-size: var(--texto-xs);
+  text-align: center;
+}
+
+.campo { display: flex; flex-direction: column; gap: var(--espacio-xs); }
+
+.campo__etiqueta {
+  color: var(--color-texto-suave);
+  font-size: var(--texto-s);
+}
+
+.campo__entrada {
+  width: 100%;
+  padding: var(--espacio-m);
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio-m);
+  background: var(--color-superficie);
+  color: var(--color-texto);
+  font: inherit;
+  font-size: var(--texto-m); /* 16px o más: evita que el iPhone haga zoom al escribir */
+}
+
+.campo__entrada:focus { outline: 2px solid var(--color-acento); outline-offset: -1px; }
+
+.barra-servidor {
+  display: flex;
+  align-items: center;
+  gap: var(--espacio-s);
+}
+
+.buscador { flex: 1; }
+
+/* Botón de descargar en cada canción del servidor */
+.cancion__accion {
+  width: var(--boton-icono);
+  height: var(--boton-icono);
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radio-redondo);
+  background: transparent;
+  color: var(--color-texto-suave);
+  font-size: var(--texto-l);
+  cursor: pointer;
+}
+
+.cancion__accion--hecha { color: var(--color-acento); cursor: default; }
+
+.cancion__accion:disabled { opacity: 0.6; }
 
 .aviso {
   margin: 0 var(--espacio-m) var(--espacio-s);

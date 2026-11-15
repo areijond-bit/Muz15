@@ -170,7 +170,15 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
   audio.addEventListener('seeked', actualizarPosicion);
   audio.addEventListener('ratechange', actualizarPosicion);
   audio.addEventListener('ended', siguiente);
-  audio.addEventListener('error', () => console.error('Error del <audio>:', audio.error));
+  audio.addEventListener('error', () => {
+    if (!audio.getAttribute('src')) return; // la quitamos a propósito
+    console.error('Error del <audio>:', audio.error);
+    const delServidor = urlAudio?.startsWith('http');
+    alFallar?.(delServidor
+      ? 'No se pudo escuchar desde el servidor. ¿Está prendida la PC y Tailscale activado?'
+      : 'No se pudo reproducir este archivo.');
+    avisar();
+  });
 
   registrarControles();
 

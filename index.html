@@ -38,15 +38,54 @@
     </label>
   </header>
 
+  <nav class="pestanas" aria-label="Biblioteca">
+    <button class="pestana pestana--activa" data-vista="telefono">En el teléfono</button>
+    <button class="pestana" data-vista="servidor">Servidor</button>
+  </nav>
+
   <p id="aviso" class="aviso" role="status" hidden></p>
 
   <main class="contenido">
-    <ul id="lista" class="lista"></ul>
-    <div id="vacio" class="vacio">
-      <p class="vacio__titulo">Todavía no hay canciones</p>
-      <p class="vacio__texto">Toca <strong>+ Importar</strong> y elige archivos MP3 o M4A.<br>Se guardan en el teléfono y suenan sin internet.</p>
-    </div>
-    <p id="espacio" class="espacio"></p>
+    <!-- Canciones guardadas en el teléfono -->
+    <section id="vista-telefono">
+      <ul id="lista" class="lista"></ul>
+      <div id="vacio" class="vacio">
+        <p class="vacio__titulo">Todavía no hay canciones</p>
+        <p class="vacio__texto">Toca <strong>+ Importar</strong> y elige archivos MP3, M4A o MP4,<br>o descárgalas desde la pestaña <strong>Servidor</strong>.<br>Se guardan en el teléfono y suenan sin internet.</p>
+      </div>
+      <p id="espacio" class="espacio"></p>
+    </section>
+
+    <!-- Canciones de tu servidor Navidrome -->
+    <section id="vista-servidor" hidden>
+      <form id="form-servidor" class="formulario" hidden>
+        <p class="formulario__texto">Conéctate a tu servidor Navidrome. Necesitas Tailscale encendido en este teléfono.</p>
+        <label class="campo">
+          <span class="campo__etiqueta">Dirección</span>
+          <input id="servidor-url" class="campo__entrada" type="url" required autocomplete="url" inputmode="url">
+        </label>
+        <label class="campo">
+          <span class="campo__etiqueta">Usuario</span>
+          <input id="servidor-usuario" class="campo__entrada" required autocomplete="username" autocapitalize="none">
+        </label>
+        <label class="campo">
+          <span class="campo__etiqueta">Contraseña</span>
+          <input id="servidor-contrasena" class="campo__entrada" type="password" required autocomplete="current-password">
+        </label>
+        <button class="boton boton--primario boton--ancho" type="submit">Conectar</button>
+        <p class="formulario__nota">Tu contraseña no se guarda: el teléfono solo recuerda una llave cifrada.</p>
+      </form>
+
+      <div id="biblioteca-servidor" hidden>
+        <div class="barra-servidor">
+          <input id="buscar" class="campo__entrada buscador" type="search" placeholder="Buscar canción, artista o álbum" autocomplete="off">
+          <button id="recargar-servidor" class="boton-icono" aria-label="Actualizar">⟳</button>
+        </div>
+        <p id="estado-servidor" class="espacio"></p>
+        <ul id="lista-servidor" class="lista"></ul>
+        <button id="desconectar" class="boton boton--discreto">Desconectar servidor</button>
+      </div>
+    </section>
   </main>
 
   <footer class="reproductor" id="reproductor">
