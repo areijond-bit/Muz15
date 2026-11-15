@@ -26,34 +26,48 @@ export const PERFILES = {
   carro: { nombre: 'Para el carro', ganancias: [4, 3, 0, -1, 1, 3, 3, 2] },
 };
 
-/* Volumen seguro: después de los filtros hay un "tope" (un control de volumen fijo).
+/* Volumen seguro: después de los filtros hay un LIMITADOR.
+ *
+ * Mientras el audio esté por debajo del tope, pasa exactamente igual (no se
+ * baja nada). Solo cuando una parte intenta sonar más fuerte que el tope, se
+ * frena ahí. Como va al final, también frena lo que suba el ecualizador.
  *
  * El teléfono no puede medir los dB que llegan a tu oído (dependen de los
  * audífonos o bocinas). Tomamos como referencia 100 dB = volumen máximo del
- * teléfono con audífonos comunes, y cada opción baja ese máximo:
- *   85 dB → 15 dB menos que el máximo, 70 dB → 30 dB menos, etc.
- * Si el ecualizador sube alguna banda, el tope baja esa misma cantidad, así
- * que la suma nunca se pasa del límite elegido. */
+ * teléfono con audífonos comunes: el tope de 85 dB frena todo lo que pase de
+ * 15 dB por debajo del máximo, el de 70 dB lo que pase de 30 dB por debajo, etc. */
 export const REFERENCIA_DB = 100;
 export const OPCIONES_TOPE_DB = [70, 75, 80, 85, 90, 95, 100];
+
+// Qué tan duro frena: por cada 20 dB que algo intente pasarse, solo se pasa 1 dB.
+const PROPORCION_LIMITADOR = 20;
 
 /** @param {HTMLAudioElement[]} audios  los <audio> del reproductor */
 export function crearEcualizador(audios) {
   let contexto = null;
   let filtros = [];
-  let salida = null;  // el "tope" del volumen seguro
+  let limitador = null;   // DynamicsCompressor usado como limitador
+  let compensacion = null; // anula la "subida automática" que el navegador le mete al limitador
   let ganancias = BANDAS.map(() => 0);
   let topeDb = null;  // null = sin volumen seguro
 
-  // Cuánto multiplica el tope: 1 = nada; 0.18 = 15 dB menos; etc.
-  function factorTope() {
-    if (topeDb === null) return 1;
-    const subidaMaxima = Math.max(0, ...ganancias); // lo que el ecualizador podría subir
-    return 10 ** ((topeDb - REFERENCIA_DB - subidaMaxima) / 20);
+  // El compresor del navegador sube solo todo el audio para "compensar" lo que
+  // frena (makeup gain = (1 / ganancia a todo volumen) ^ 0.6). Nosotros no queremos
+  // que suba nada, así que lo anulamos con una ganancia contraria.
+  function gananciaQueAnula(umbralDb, proporcion) {
+    const salidaATodoVolumenDb = umbralDb * (1 - 1 / proporcion); // entrada de 0 dB
+    return 10 ** ((0.6 * salidaATodoVolumenDb) / 20);
   }
 
   function aplicarTope() {
-    if (salida) salida.gain.setTargetAtTime(factorTope(), contexto.currentTime, 0.05);
+    if (!limitador) return;
+    const ahora = contexto.currentTime;
+    // Sin volumen seguro: umbral en 0 dB y proporción 1 = no toca nada.
+    const umbral = topeDb === null ? 0 : topeDb - REFERENCIA_DB;
+    const proporcion = topeDb === null ? 1 : PROPORCION_LIMITADOR;
+    limitador.threshold.setValueAtTime(umbral, ahora);
+    limitador.ratio.setValueAtTime(proporcion, ahora);
+    compensacion.gain.setValueAtTime(gananciaQueAnula(umbral, proporcion), ahora);
   }
 
   // Arma la cadena de filtros. Debe llamarse desde un toque del usuario
@@ -70,11 +84,16 @@ export function crearEcualizador(audios) {
       filtro.gain.value = ganancias[i];
       return filtro;
     });
-    salida = contexto.createGain();
-    salida.gain.value = factorTope();
+    limitador = contexto.createDynamicsCompressor();
+    limitador.knee.value = 0;         // frena de golpe al llegar al tope, no antes
+    limitador.attack.value = 0.002;   // reacciona en 2 ms
+    limitador.release.value = 0.15;   // y suelta en 150 ms
+    compensacion = contexto.createGain();
+    aplicarTope();
     filtros.reduce((anterior, siguiente) => { anterior.connect(siguiente); return siguiente; });
-    filtros.at(-1).connect(salida);
-    salida.connect(contexto.destination);
+    filtros.at(-1).connect(limitador);
+    limitador.connect(compensacion);
+    compensacion.connect(contexto.destination);
     for (const audio of audios) contexto.createMediaElementSource(audio).connect(filtros[0]);
 
     // El navegador pausa el procesador si se queda sin uso; lo reactivamos al reproducir.
@@ -91,14 +110,11 @@ export function crearEcualizador(audios) {
       const ahora = contexto.currentTime;
       // Cambio suave (50 ms) para que no truene al mover una barra.
       filtros.forEach((filtro, i) => filtro.gain.setTargetAtTime(ganancias[i], ahora, 0.05));
-      aplicarTope(); // si subiste una banda, el tope se ajusta para no pasarse
     },
     /** Volumen seguro: dB máximos (70–100) o null para quitarlo. */
     ponerTope(db) {
       topeDb = db;
       if (contexto) aplicarTope();
     },
-    /** Para revisar: el factor que se está aplicando ahora. */
-    get factorTope() { return factorTope(); },
   };
 }

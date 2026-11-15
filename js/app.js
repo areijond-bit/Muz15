@@ -1875,7 +1875,7 @@ function abrirVolumenSeguro() {
       <span>Volumen seguro</span>
       <input type="checkbox" role="switch">
     </label>
-    <p class="formulario__nota volumen__nota">Tope de volumen que nunca se pasa, aunque subas el ecualizador. Los dB son aproximados (medidos como con audífonos comunes al volumen máximo del teléfono); con bocinas o audífonos muy potentes puede sonar más fuerte.</p>
+    <p class="formulario__nota volumen__nota">Mientras la música no llegue al tope suena igual; solo lo que intente pasarse se frena ahí, aunque subas el ecualizador. Los dB son aproximados (medidos como con audífonos comunes al volumen máximo del teléfono); con bocinas o audífonos muy potentes puede sonar más fuerte.</p>
     <div class="eq__perfiles volumen__opciones"></div>`;
 
   const interruptor = panel.querySelector('input[role="switch"]');
