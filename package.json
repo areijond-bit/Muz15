@@ -10,8 +10,7 @@
   "dependencies": {
     "@capacitor/android": "^8.6.2",
     "@capacitor/app": "^8.0.0",
-    "@capacitor/core": "^8.6.2",
-    "@capgo/capacitor-media-session": "^8.1.11"
+    "@capacitor/core": "^8.6.2"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.6.2"

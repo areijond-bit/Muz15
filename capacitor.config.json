@@ -8,10 +8,5 @@
   },
   "android": {
     "backgroundColor": "#000000"
-  },
-  "plugins": {
-    "MediaSession": {
-      "foregroundService": "duringPlayback"
-    }
   }
 }
