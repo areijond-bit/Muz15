@@ -9,7 +9,7 @@
  * @param {string} opciones.titulo
  * @param {string} [opciones.subtitulo]
  * @param {{texto: string, peligro?: boolean, alElegir: () => void}[]} [opciones.acciones]
- * @param {{placeholder: string, valor?: string, textoBoton: string, alAceptar: (texto: string) => void}} [opciones.entrada]
+ * @param {{placeholder: string, valor?: string, numero?: boolean, textoBoton: string, alAceptar: (texto: string) => void}} [opciones.entrada]
  * @param {HTMLElement} [opciones.contenido]  cualquier otro contenido (ej. un formulario)
  * @returns {() => void} función para cerrar la hoja
  */
@@ -52,6 +52,10 @@ export function abrirHoja({ titulo, subtitulo, acciones = [], entrada, contenido
     campo.placeholder = entrada.placeholder;
     campo.value = entrada.valor ?? '';
     campo.maxLength = 60;
+    if (entrada.numero) { // teclado de números en el cel
+      campo.inputMode = 'numeric';
+      campo.pattern = '[0-9]*';
+    }
     campo.required = true;
     const boton = document.createElement('button');
     boton.className = 'boton boton--primario boton--ancho';

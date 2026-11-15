@@ -1629,6 +1629,21 @@ async function revisarActualizacion() {
 }
 const revisarActualizacionLista = revisarActualizacion(); // también deja anotada la versión de la APK
 
+/* ---------- Botón Atrás de Android (solo APK) ---------- */
+// Antes, Atrás en la pantalla principal cerraba Muz15 del todo y cortaba la música.
+// Ahora: primero cierra el menú abierto, luego regresa del álbum/playlist, y si
+// ya no hay a dónde regresar, MINIMIZA la app (como el botón de inicio): la
+// música sigue sonando.
+AppNativa?.addListener('backButton', () => {
+  const hojaAbierta = [...document.querySelectorAll('.hoja-fondo')].at(-1);
+  if (hojaAbierta) return hojaAbierta.click(); // tocar el fondo = cerrar la hoja
+  if (listaAbierta) {
+    listaAbierta = null;
+    return pintarListas();
+  }
+  AppNativa.minimizeApp();
+});
+
 /** La versión de la app guardada en el teléfono (ej. "v14"). */
 async function versionWeb() {
   try {
@@ -1850,19 +1865,50 @@ if (estadoEq.activo) {
 // audífonos comunes (ver ecualizador.js).
 
 const CLAVE_VOLUMEN_SEGURO = 'muz15-volumen-seguro';
-let volumenSeguro = { activo: false, db: 85 };
+// referencia: los dB que dan TUS audífonos con la música al máximo (100 hasta que calibres).
+let volumenSeguro = { activo: false, db: 85, referencia: 100 };
 try {
   const guardado = JSON.parse(localStorage.getItem(CLAVE_VOLUMEN_SEGURO));
-  if (guardado && OPCIONES_TOPE_DB.includes(guardado.db)) volumenSeguro = guardado;
+  if (guardado && OPCIONES_TOPE_DB.includes(guardado.db)) volumenSeguro = { ...volumenSeguro, ...guardado };
 } catch { /* nada */ }
 
 function aplicarVolumenSeguro() {
-  ecualizador.ponerTope(volumenSeguro.activo ? volumenSeguro.db : null);
+  ecualizador.ponerTope(volumenSeguro.activo ? volumenSeguro.db : null, volumenSeguro.referencia);
   try { localStorage.setItem(CLAVE_VOLUMEN_SEGURO, JSON.stringify(volumenSeguro)); } catch { /* nada */ }
 }
 
+/**
+ * Calibrar: con el tope puesto y una canción fuerte, tu app de audífonos marca
+ * X dB. Si marca menos que el tope elegido, la escala de Muz15 se ajusta para que
+ * el número que eliges sea el que de verdad llega (aprox.) a tus audífonos.
+ */
+function calibrarVolumenSeguro() {
+  abrirHoja({
+    titulo: '📏 Calibrar con tus audífonos',
+    subtitulo: `1) Deja el volumen seguro en ${volumenSeguro.db} dB. 2) Pon una canción fuerte con el volumen del cel al máximo. `
+      + '3) Escribe cuántos dB marca tu app de audífonos (Soundcore, etc.).',
+    entrada: {
+      placeholder: `Ej. 70`,
+      numero: true,
+      textoBoton: 'Calibrar',
+      alAceptar: (texto) => {
+        const medido = Number(texto.replace(',', '.'));
+        if (!Number.isFinite(medido) || medido < 40 || medido > 130) {
+          mostrarAviso('Escribe solo el número de dB que marca tu app (ej. 70).', 4000);
+          return;
+        }
+        // Lo que llega al máximo = lo medido + lo que el tope estaba frenando.
+        const referencia = Math.round(medido - volumenSeguro.db + volumenSeguro.referencia);
+        volumenSeguro = { ...volumenSeguro, activo: true, referencia: Math.max(60, Math.min(120, referencia)) };
+        aplicarVolumenSeguro();
+        mostrarAviso(`Calibrado: tus audífonos dan unos ${volumenSeguro.referencia} dB al máximo. Ahora ${volumenSeguro.db} dB en Muz15 ≈ ${volumenSeguro.db} dB en tu app.`, 7000);
+      },
+    },
+  });
+}
+
 if (volumenSeguro.activo) {
-  ecualizador.ponerTope(volumenSeguro.db);
+  ecualizador.ponerTope(volumenSeguro.db, volumenSeguro.referencia);
   // Igual que el ecualizador: el procesador de audio se enciende con el primer toque.
   document.addEventListener('pointerdown', () => ecualizador.conectar(), { once: true, capture: true });
 }
@@ -1889,7 +1935,7 @@ function abrirVolumenSeguro() {
     boton.textContent = `${db} dB`;
     boton.addEventListener('click', () => {
       ecualizador.conectar(); // estamos dentro de un toque: el navegador lo permite
-      volumenSeguro = { activo: true, db };
+      volumenSeguro = { ...volumenSeguro, activo: true, db }; // conserva la calibración
       aplicarVolumenSeguro();
       pintar();
       mostrarAviso(`Volumen seguro: máximo ${db} dB.`, 2500);
@@ -1913,10 +1959,22 @@ function abrirVolumenSeguro() {
   }
 
   pintar();
+  const calibrado = volumenSeguro.referencia !== 100 ? ` Calibrado para tus audífonos (${volumenSeguro.referencia} dB al máximo).` : '';
   abrirHoja({
     titulo: '🛡 Volumen seguro',
-    subtitulo: 'Elige el volumen máximo. 85 dB o menos es lo recomendado para escuchar por horas.',
+    subtitulo: `Elige el volumen máximo. 85 dB o menos es lo recomendado para escuchar por horas.${calibrado}`,
     contenido: panel,
+    acciones: [
+      { texto: '📏 Calibrar con mis audífonos', alElegir: calibrarVolumenSeguro },
+      ...(volumenSeguro.referencia !== 100 ? [{
+        texto: 'Quitar calibración',
+        alElegir: () => {
+          volumenSeguro = { ...volumenSeguro, referencia: 100 };
+          aplicarVolumenSeguro();
+          mostrarAviso('Calibración quitada.', 2500);
+        },
+      }] : []),
+    ],
   });
 }
 

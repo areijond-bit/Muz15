@@ -50,6 +50,7 @@ export function crearEcualizador(audios) {
   let compensacion = null; // anula la "subida automática" que el navegador le mete al limitador
   let ganancias = BANDAS.map(() => 0);
   let topeDb = null;  // null = sin volumen seguro
+  let referenciaDb = REFERENCIA_DB; // se ajusta al calibrar con tus audífonos
 
   // El compresor del navegador sube solo todo el audio para "compensar" lo que
   // frena (makeup gain = (1 / ganancia a todo volumen) ^ 0.6). Nosotros no queremos
@@ -63,7 +64,8 @@ export function crearEcualizador(audios) {
     if (!limitador) return;
     const ahora = contexto.currentTime;
     // Sin volumen seguro: umbral en 0 dB y proporción 1 = no toca nada.
-    const umbral = topeDb === null ? 0 : topeDb - REFERENCIA_DB;
+    // (nunca por encima de 0 dB: más arriba no hay nada que frenar)
+    const umbral = topeDb === null ? 0 : Math.min(0, topeDb - referenciaDb);
     const proporcion = topeDb === null ? 1 : PROPORCION_LIMITADOR;
     limitador.threshold.setValueAtTime(umbral, ahora);
     limitador.ratio.setValueAtTime(proporcion, ahora);
@@ -111,9 +113,13 @@ export function crearEcualizador(audios) {
       // Cambio suave (50 ms) para que no truene al mover una barra.
       filtros.forEach((filtro, i) => filtro.gain.setTargetAtTime(ganancias[i], ahora, 0.05));
     },
-    /** Volumen seguro: dB máximos (70–100) o null para quitarlo. */
-    ponerTope(db) {
+    /**
+     * Volumen seguro: dB máximos (70–100) o null para quitarlo.
+     * @param {number} [referencia] dB que dan TUS audífonos al máximo (calibración)
+     */
+    ponerTope(db, referencia = REFERENCIA_DB) {
       topeDb = db;
+      referenciaDb = referencia;
       if (contexto) aplicarTope();
     },
   };
