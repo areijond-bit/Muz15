@@ -63,7 +63,7 @@
       <div class="pildoras" role="tablist">
         <button class="pildora" data-chip="playlists">Playlists</button>
         <button class="pildora" data-chip="albumes">Álbumes</button>
-        <button class="pildora" data-chip="descargado">Descargado</button>
+        <button class="pildora" data-chip="descargado">Mis descargas</button>
       </div>
     </div>
 
@@ -71,7 +71,7 @@
     <section id="vista-telefono" hidden>
       <div class="encabezado-vista">
         <div>
-          <h2 class="encabezado-vista__titulo">Descargadas</h2>
+          <h2 class="encabezado-vista__titulo">Mis descargas</h2>
           <p id="espacio" class="encabezado-vista__meta"></p>
         </div>
         <div class="acciones-lista">
@@ -82,10 +82,10 @@
       <ul id="lista" class="lista"></ul>
       <div id="vacio" class="vacio">
         <p class="vacio__titulo">Todavía no hay canciones</p>
-        <p class="vacio__texto">Toca <strong>Crear</strong> abajo para subir tus MP3, M4A o MP4,<br>o guarda las de tus amigos desde <strong>Buscar</strong>.<br>Se guardan en el teléfono y suenan sin internet.</p>
+        <p class="vacio__texto">Toca <strong>Crear</strong> abajo para subir tus MP3, M4A o MP4,<br>o guarda las de tus amigos desde <strong>Buscar</strong>.<br>Suenan aunque no tengas internet.</p>
       </div>
       <!-- Solo aparece al usar Muz15 en la PC (con tools/servidor.mjs) -->
-      <button id="enviar-pc" class="pildora pildora--ancha" hidden><span data-icono="subir" data-tamano="20"></span> Enviar estas canciones a mi PC</button>
+      <button id="enviar-pc" class="pildora pildora--ancha" hidden><span data-icono="subir" data-tamano="20"></span> Copiar a la música de mi computadora</button>
     </section>
 
     <!-- Lo que suben todos (como el inicio de YouTube) -->
@@ -120,13 +120,13 @@
           <h2 id="titulo-vista-listas" class="encabezado-vista__titulo">Álbumes</h2>
           <button id="nueva-lista" class="boton-icono" aria-label="Crear"><span data-icono="agregar"></span></button>
         </div>
-        <h3 id="titulo-listas-telefono" class="seccion">En este teléfono</h3>
+        <h3 id="titulo-listas-telefono" class="seccion">Mis álbumes</h3>
         <ul id="listas" class="lista"></ul>
         <p id="sin-listas" class="espacio"></p>
 
         <!-- Todos tus álbumes guardados en tu servidor: los mismos en el cel y en la PC -->
         <div id="listas-pc" hidden>
-          <h3 class="seccion">En Mi PC</h3>
+          <h3 class="seccion">En la música de mi computadora</h3>
           <label class="buscador-caja">
             <span data-icono="buscar" data-tamano="20"></span>
             <input id="buscar-listas" class="buscador-caja__entrada" type="search" placeholder="Buscar álbum" autocomplete="off">
@@ -170,11 +170,11 @@
     <!-- Canciones de tu servidor Navidrome (se abre desde Ajustes → Mi PC) -->
     <section id="vista-servidor" hidden>
       <div class="encabezado-vista">
-        <h2 class="encabezado-vista__titulo">Mi PC</h2>
+        <h2 class="encabezado-vista__titulo">Música de mi computadora</h2>
         <button id="recargar-servidor" class="boton-icono" aria-label="Actualizar"><span data-icono="actualizar"></span></button>
       </div>
       <form id="form-servidor" class="formulario" hidden>
-        <p class="formulario__texto">Conéctate a tu servidor Navidrome. Necesitas Tailscale encendido en este teléfono.</p>
+        <p class="formulario__texto">Si tienes Navidrome en tu computadora, conéctalo para escuchar esa música aquí. Necesitas Tailscale encendido.</p>
         <label class="campo">
           <span class="campo__etiqueta">Dirección</span>
           <input id="servidor-url" class="campo__entrada" type="url" required autocomplete="url" inputmode="url">
@@ -188,7 +188,7 @@
           <input id="servidor-contrasena" class="campo__entrada" type="password" required autocomplete="current-password">
         </label>
         <button class="boton boton--primario boton--ancho" type="submit">Conectar</button>
-        <p class="formulario__nota">Tu contraseña no se guarda: el teléfono solo recuerda una llave cifrada.</p>
+        <p class="formulario__nota">Tu contraseña no se guarda: solo se recuerda una llave cifrada.</p>
       </form>
 
       <div id="biblioteca-servidor" hidden>
@@ -199,7 +199,7 @@
         <button id="descargar-todas" class="pildora pildora--ancha" hidden></button>
         <p id="estado-servidor" class="espacio"></p>
         <ul id="lista-servidor" class="lista"></ul>
-        <button id="desconectar" class="boton boton--discreto">Desconectar servidor</button>
+        <button id="desconectar" class="boton boton--discreto">Desconectar mi computadora</button>
       </div>
     </section>
   </main>

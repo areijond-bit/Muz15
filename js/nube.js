@@ -312,7 +312,7 @@ async function unaVuelta() {
   let hechas = 0;
   const porBajar = [...remotos.values()].filter((g) => !porNube.has(g.audio.id) && !fallaHaceRato(g.audio.id));
   for (const [i, g] of porBajar.entries()) {
-    ganchos.avisar?.(`Bajando tu música: ${i + 1} de ${porBajar.length} · ${g.audio.titulo}`);
+    ganchos.avisar?.(`Descargando tu música: ${i + 1} de ${porBajar.length} · ${g.audio.titulo}`);
     try {
       await bajarCancion(g, idLocalDe);
       hechas++;
@@ -325,7 +325,7 @@ async function unaVuelta() {
   // 4. Subir lo nuevo de este dispositivo.
   const subibles = porSubir.filter((c) => !fallaHaceRato(c.id));
   for (const [i, c] of subibles.entries()) {
-    ganchos.avisar?.(`Subiendo a tu cuenta: ${i + 1} de ${subibles.length} · ${c.titulo}`);
+    ganchos.avisar?.(`Subiendo tus canciones: ${i + 1} de ${subibles.length} · ${c.titulo}`);
     try {
       await subirCancion(c);
       hechas++;
@@ -341,7 +341,7 @@ async function unaVuelta() {
   if (porBajar.length || subibles.length) {
     const fallaron = porBajar.length + subibles.length - hechas;
     ganchos.avisar?.(fallaron
-      ? `${fallaron} ${fallaron === 1 ? 'canción no se pudo' : 'canciones no se pudieron'} pasar; se reintenta en unos minutos.`
+      ? `${fallaron} ${fallaron === 1 ? 'canción no se pudo' : 'canciones no se pudieron'} subir o descargar; se intenta otra vez en unos minutos.`
       : 'Tu música está al día en todos tus dispositivos.', 4000);
     if (fallaron) programarVuelta(ESPERA_TRAS_FALLO_MS + 1000);
   }

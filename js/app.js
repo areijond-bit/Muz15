@@ -294,7 +294,7 @@ el.importar.addEventListener('change', async () => {
     }
   }
 
-  mostrarAviso(`${guardadas} ${guardadas === 1 ? 'canción guardada' : 'canciones guardadas'} en el teléfono.`, 3000);
+  mostrarAviso(`${guardadas} ${guardadas === 1 ? 'canción guardada' : 'canciones guardadas'} en Mis descargas.`, 3000);
   pedirAlmacenamientoPersistente();
   await recargarLista();
   subirImportadas(nuevas); // en segundo plano
@@ -470,8 +470,8 @@ async function ofrecerRecuperacion() {
     // El de este mismo dispositivo primero; si no, el más grande.
     respaldos.sort((a, b) => (b.nombre === nombreRespaldo) - (a.nombre === nombreRespaldo) || b.total - a.total);
     abrirHoja({
-      titulo: 'Este teléfono no tiene canciones',
-      subtitulo: 'Tu PC guardó la lista de lo que tenías descargado. ¿Lo bajo todo de nuevo?',
+      titulo: 'No tienes descargas aquí',
+      subtitulo: 'Tu computadora guardó la lista de lo que tenías descargado. ¿Lo bajo todo de nuevo?',
       acciones: respaldos.map((r) => ({
         icono: 'descargar', texto: `Recuperar ${r.total} canciones — ${r.nombre.replace(PREFIJO_RESPALDO, '').trim() || 'respaldo'}`,
         alElegir: async () => {
@@ -560,19 +560,19 @@ function menuCancion(cancion) {
         }),
       }] : []),
       {
-        texto: enCuenta ? 'Quitar de mi biblioteca' : 'Borrar del teléfono',
+        texto: 'Quitar de Mis descargas',
         peligro: true,
         alElegir: () => confirmar({
-          titulo: enCuenta ? `¿Quitar "${cancion.titulo}" de tu biblioteca?` : `¿Borrar "${cancion.titulo}"?`,
+          titulo: `¿Quitar "${cancion.titulo}" de Mis descargas?`,
           subtitulo: enCuenta
-            ? 'Se quita de todos tus dispositivos y de tus listas. La puedes volver a guardar desde Explorar.'
-            : 'Se borra de este teléfono y de tus listas. Si está en tu PC, la puedes volver a descargar.',
+            ? 'Se quita en todos tus dispositivos y de tus listas. La puedes volver a guardar desde Buscar.'
+            : 'Se quita de aquí y de tus listas.',
           textoBoton: 'Borrar',
           alConfirmar: async () => {
             await borrarCancionCompleta(cancion);
             reproductor.quitar(cancion.id);
             await recargarLista();
-            mostrarAviso(`"${cancion.titulo}" se borró del teléfono.`, 3000);
+            mostrarAviso(`"${cancion.titulo}" se quitó de Mis descargas.`, 3000);
           },
         }),
       },
@@ -593,7 +593,7 @@ function elegirLista(cancion) {
     titulo: 'Agregar a…',
     subtitulo: cancion.titulo,
     acciones: [
-      { texto: '+ Nueva playlist (solo este teléfono)', alElegir: () => crearLista(cancion, 'playlist') },
+      { texto: '+ Nueva playlist', alElegir: () => crearLista(cancion, 'playlist') },
       { texto: '+ Nuevo álbum (en todos tus dispositivos)', alElegir: () => crearLista(cancion, 'album') },
       ...listas.map((lista) => ({
         icono: lista.canciones.includes(cancion.id) ? 'descargado' : iconoLista(lista),
@@ -773,8 +773,8 @@ function crearLista(cancionInicial, tipo = 'album') {
   abrirHoja({
     titulo: tipo === 'playlist' ? 'Nueva playlist' : 'Nuevo álbum',
     subtitulo: tipo === 'playlist'
-      ? 'Solo en este teléfono, con tus canciones descargadas.'
-      : 'Se guarda en tu PC: lo verás en todos tus dispositivos.',
+      ? 'Solo tú la ves. Con tu cuenta la tienes en todos tus dispositivos.'
+      : 'Si lo haces público, tus amigos lo ven en tu perfil.',
     entrada: {
       placeholder: 'Nombre (ej. Para el carro)',
       textoBoton: tipo === 'playlist' ? 'Crear playlist' : 'Crear álbum',
@@ -1020,7 +1020,7 @@ async function actualizarAlbumesSolos() {
  */
 async function recargarAlbumesAFuerza() {
   if (!servidor.configuracion()) {
-    mostrarAviso('Conéctate a tu PC (pestaña Mi PC) para actualizar los álbumes.', 4000);
+    mostrarAviso('Conecta tu computadora (Configuración → Música de mi computadora) para actualizar estos álbumes.', 4000);
     return;
   }
   cancionesServidor = [];
@@ -1108,7 +1108,7 @@ function pintarPlaylistsServidor() {
   const busqueda = normalizar(el.buscarListas.value.trim());
   const visibles = playlistsServidor.filter((p) => !busqueda || normalizar(p.nombre).includes(busqueda));
   if (!playlistsServidor.length && !el.estadoListasPC.textContent) {
-    el.estadoListasPC.textContent = 'Todavía no hay álbumes en tu PC. Los que crees aquí se guardan allá solos.';
+    el.estadoListasPC.textContent = 'Todavía no hay álbumes en tu computadora. Los que crees aquí se guardan allá solos.';
   }
   el.listasServidor.replaceChildren(...visibles.map((playlist) => {
     const local = listas.find((l) => l.idServidor === playlist.idServidor);
@@ -1121,7 +1121,7 @@ function pintarPlaylistsServidor() {
     } else if (completa) {
       boton.innerHTML = icono('descargado');
       boton.classList.add('cancion__accion--hecha');
-      boton.setAttribute('aria-label', 'Ya está en este teléfono');
+      boton.setAttribute('aria-label', 'Ya está en Mis descargas');
     } else {
       boton.innerHTML = icono(local ? 'actualizar' : 'descargar');
       boton.setAttribute('aria-label', `Descargar playlist ${playlist.nombre}`);
@@ -1135,7 +1135,7 @@ function pintarPlaylistsServidor() {
       playlist.publico ? 'Público' : 'Privado',
       `${playlist.total} ${playlist.total === 1 ? 'canción' : 'canciones'}`,
       playlist.mio ? '' : `de ${playlist.dueno}`,
-      local ? 'en este teléfono' : '',
+      local ? 'descargado' : '',
     ].filter(Boolean).join(' · ');
     return crearFila(
       { id: `pl-${playlist.idServidor}`, titulo: playlist.nombre, artista: detalles },
@@ -1213,7 +1213,7 @@ async function descargarPlaylist(playlist, { silencioso = false } = {}) {
     if (fallidas) {
       mostrarAviso(`"${completo.nombre}": ${fallidas} canciones no se pudieron bajar. Desliza hacia abajo para reintentar.`, 5000);
     } else if (!silencioso) {
-      mostrarAviso(`Álbum "${completo.nombre}" descargado: ${ids.length} canciones (ya están en Descargadas).`, 5000);
+      mostrarAviso(`Álbum "${completo.nombre}" descargado: ${ids.length} canciones (ya están en Mis descargas).`, 5000);
     } else if (cambio) {
       mostrarAviso(`Álbum "${completo.nombre}" actualizado${faltan.length ? ` (${faltan.length} canciones nuevas)` : ''}.`, 4000);
     }
@@ -1265,10 +1265,10 @@ function pintarListas() {
     const delTipo = listas.filter((l) => (tipoVista === 'playlist') === esPlaylist(l));
     el.tituloVistaListas.textContent = tipoVista === 'playlist' ? 'Playlists' : 'Álbumes';
     el.nuevaLista.setAttribute('aria-label', tipoVista === 'playlist' ? 'Nueva playlist' : 'Nuevo álbum');
-    el.tituloListasTelefono.textContent = tipoVista === 'playlist' ? 'Solo en este teléfono' : 'En este teléfono';
+    el.tituloListasTelefono.textContent = tipoVista === 'playlist' ? 'Mis playlists' : 'Mis álbumes';
     el.sinListas.innerHTML = tipoVista === 'playlist'
-      ? 'Arma playlists con tus canciones de <strong>Descargadas</strong> (tres puntos → Agregar a playlist o álbum). Solo viven en este teléfono.'
-      : 'Los álbumes se guardan en tu PC y los ves en todos tus dispositivos. Crea uno o descarga los de abajo.';
+      ? 'Arma playlists con tus canciones: en <strong>Mis descargas</strong>, toca los tres puntos de una canción → Agregar a playlist o álbum.'
+      : 'Crea un álbum con <strong>+</strong> o desde <strong>Crear</strong>. Si lo haces público, tus amigos lo ven en tu perfil.';
     el.sinListas.hidden = delTipo.length > 0;
     el.listas.replaceChildren(...delTipo.map((lista) => {
       const canciones = cancionesDe(lista);
@@ -1290,7 +1290,7 @@ function pintarListas() {
   el.mosaico.id = 'mosaico';
   // Datos debajo del nombre: público/privado (álbumes) y cuántas canciones.
   el.metaLista.innerHTML = esPlaylist(abierta)
-    ? `${icono('telefono', 16)}<span>Playlist · solo en este teléfono · ${canciones.length} ${canciones.length === 1 ? 'canción' : 'canciones'}</span>`
+    ? `${icono('candado', 16)}<span>Playlist · solo tú · ${canciones.length} ${canciones.length === 1 ? 'canción' : 'canciones'}</span>`
     : `${icono(abierta.publico ? 'globo' : 'candado', 16)}<span>${abierta.publico ? 'Público' : 'Privado'} · ${canciones.length} ${canciones.length === 1 ? 'canción' : 'canciones'}</span>`;
   el.estadoLista.innerHTML = canciones.length ? `${icono('descargado', 22)}<span>Descargado</span>` : '';
   // El degradado de arriba toma el color de la portada.
@@ -1429,7 +1429,7 @@ function menuLista(lista) {
     icono: lista.publico ? 'candado' : 'globo',
     texto: lista.publico
       ? 'Hacer privado (solo tú lo ves)'
-      : 'Hacer público (lo ve cualquiera con cuenta en tu Navidrome)',
+      : 'Hacer público (tus amigos lo ven en tu perfil)',
     alElegir: async () => {
       await guardarLista({ ...lista, publico: !lista.publico });
       await recargarLista();
@@ -1438,17 +1438,17 @@ function menuLista(lista) {
   }];
   // Un álbum se puede quitar solo de este teléfono y seguir en tu PC y tus otros dispositivos.
   const quitarDeAqui = esPlaylist(lista) || !lista.idServidor ? [] : [{
-    texto: 'Quitar de este teléfono (sigue en tu PC)',
+    texto: 'Quitar de aquí (sigue en tu computadora)',
     alElegir: async () => {
       await borrarListaEnTelefono(lista.id);
       if (listaAbierta === lista.id) listaAbierta = null;
       await recargarLista();
-      mostrarAviso(`"${lista.nombre}" se quitó de este teléfono. Lo puedes volver a bajar desde "En Mi PC".`, 4000);
+      mostrarAviso(`"${lista.nombre}" se quitó de aquí. Lo puedes volver a bajar desde "En la música de mi computadora".`, 4000);
     },
   }];
   abrirHoja({
     titulo: lista.nombre,
-    subtitulo: esPlaylist(lista) ? 'Playlist: solo en este teléfono.' : `Álbum: está en tu PC · ${lista.publico ? 'público' : 'privado'}.`,
+    subtitulo: esPlaylist(lista) ? 'Playlist: solo tú la ves.' : `Álbum ${lista.publico ? 'público: tus amigos lo ven en tu perfil' : 'privado: solo tú lo ves'}.`,
     acciones: [
       ...publicoPrivado,
       ...quitarDeAqui,
@@ -1473,8 +1473,8 @@ function menuLista(lista) {
         alElegir: () => confirmar({
           titulo: `¿Borrar ${esPlaylist(lista) ? 'la playlist' : 'el álbum'} "${lista.nombre}"?`,
           subtitulo: esPlaylist(lista)
-            ? 'Las canciones se quedan en Descargadas.'
-            : 'Se borra también de tu PC y de tus otros dispositivos. Las canciones se quedan en Descargadas.',
+            ? 'Las canciones se quedan en Mis descargas.'
+            : 'Se borra en todos tus dispositivos. Las canciones se quedan en Mis descargas.',
           textoBoton: `Borrar ${palabra}`,
           alConfirmar: async () => {
             await borrarLista(lista.id);
@@ -1715,8 +1715,8 @@ el.formServidor.addEventListener('submit', async (evento) => {
 });
 
 el.desconectar.addEventListener('click', () => confirmar({
-  titulo: '¿Desconectar tu PC?',
-  subtitulo: 'Las canciones descargadas se quedan en el teléfono.',
+  titulo: '¿Desconectar tu computadora?',
+  subtitulo: 'Tus descargas se quedan aquí.',
   textoBoton: 'Desconectar',
   alConfirmar: () => {
     servidor.desconectar();
@@ -1757,7 +1757,7 @@ function pintarListaServidor() {
   }));
 
   const total = cancionesServidor.length;
-  if (!total) el.estadoServidor.textContent = 'Tu servidor no tiene canciones. Copia música a C:\\Music en tu PC.';
+  if (!total) el.estadoServidor.textContent = 'Tu computadora no tiene canciones. Copia música a C:\\Music.';
   else if (visiblesServidor.length > MAXIMO_EN_PANTALLA) el.estadoServidor.textContent = `${visiblesServidor.length} canciones · mostrando ${MAXIMO_EN_PANTALLA}, usa el buscador`;
   else el.estadoServidor.textContent = `${visiblesServidor.length} de ${total} canciones`;
 
@@ -1846,7 +1846,7 @@ function botonDescarga(cancion) {
   if (localDe(cancion)) {
     boton.innerHTML = icono('descargado');
     boton.classList.add('cancion__accion--hecha');
-    boton.setAttribute('aria-label', 'Ya está en el teléfono');
+    boton.setAttribute('aria-label', 'Ya está en Mis descargas');
   } else if (descargando.has(cancion.idServidor)) {
     boton.textContent = '…';
     boton.disabled = true;
@@ -1880,7 +1880,7 @@ async function descargarDelServidor(cancion, { silencioso = false } = {}) {
       agregada: Date.now(),
     }, audio);
     bien = true;
-    if (!silencioso) mostrarAviso(`"${cancion.titulo}" ya está en el teléfono.`, 3000);
+    if (!silencioso) mostrarAviso(`"${cancion.titulo}" ya está en Mis descargas.`, 3000);
     pedirAlmacenamientoPersistente();
   } catch (error) {
     console.error('Descarga fallida:', cancion.titulo, error);
@@ -2039,7 +2039,7 @@ async function revisarEnvioAPC() {
   }
   if (!puedeEnviarAPC) baseAPC = 'api/';
   el.enviarPC.hidden = !puedeEnviarAPC;
-  el.enviarPC.innerHTML = `${icono('subir', 20)} ${enLaPC ? 'Enviar estas canciones a mi PC' : 'Subir mis canciones a Mi PC'}`;
+  el.enviarPC.innerHTML = `${icono('subir', 20)} ${enLaPC ? 'Copiar a la música de mi computadora' : 'Copiar mis canciones a mi computadora'}`;
   return puedeEnviarAPC;
 }
 revisarEnvioAPC();
@@ -2049,7 +2049,7 @@ async function subirImportadas(canciones) {
   if (!canciones.length || !(puedeEnviarAPC || await revisarEnvioAPC()) || baseAPC === 'api/') return;
   let nuevas = 0;
   for (const [i, cancion] of canciones.entries()) {
-    mostrarAviso(`Subiendo a Mi PC ${i + 1} de ${canciones.length}: ${cancion.titulo}`);
+    mostrarAviso(`Copiando a tu computadora ${i + 1} de ${canciones.length}: ${cancion.titulo}`);
     try {
       if (await enviarCancionAPC(cancion) === 'nueva') nuevas++;
     } catch (error) {
@@ -2058,7 +2058,7 @@ async function subirImportadas(canciones) {
   }
   await servidor.escanear().catch(() => {});
   cancionesServidor = [];
-  mostrarAviso(`Listo: ${nuevas} ${nuevas === 1 ? 'canción subida' : 'canciones subidas'} a Mi PC. Ya le aparecen a todos.`, 5000);
+  mostrarAviso(`Listo: ${nuevas} ${nuevas === 1 ? 'canción subida' : 'canciones copiadas'} a tu computadora.`, 5000);
 }
 
 /** El audio de una canción del teléfono (en la APK vive como archivo). */
@@ -2117,10 +2117,10 @@ el.enviarPC.addEventListener('click', async () => {
   el.enviarPC.disabled = false;
   await revisarEnvioAPC(); // vuelve a poner el texto del botón
   await servidor.escanear().catch(() => {});
-  let mensaje = `${nuevas} enviadas a Mi PC`;
+  let mensaje = `${nuevas} copiadas a tu computadora`;
   if (yaEstaban) mensaje += `, ${yaEstaban} ya estaban`;
   if (fallidas) mensaje += `, ${fallidas} fallaron`;
-  mostrarAviso(`${mensaje}. En unos segundos aparecen en todos tus dispositivos, en Mi PC.`, 8000);
+  mostrarAviso(`${mensaje}. En unos segundos aparecen en "Música de mi computadora".`, 8000);
 });
 
 /* ---------- Actualizaciones de la APK ---------- */
@@ -2237,8 +2237,8 @@ try {
 
 el.ajustes.addEventListener('click', () => {
   // Para saber en cuál Muz15 estás: la APK y la de Chrome guardan canciones por separado.
-  const donde = esApk ? `APK ${versionApk?.nombre ?? ''}`.trim() : 'Navegador (no es la APK)';
-  const version = `Estás en: ${donde} · ${cancionesLocales.length} canciones guardadas aquí`;
+  const donde = esApk ? `app ${versionApk?.nombre ?? ''}`.trim() : 'versión web';
+  const version = `${cancionesLocales.length} ${cancionesLocales.length === 1 ? 'canción' : 'canciones'} en Mis descargas · ${donde}`;
   abrirHoja({
     titulo: 'Configuración',
     subtitulo: version,
@@ -2249,7 +2249,7 @@ el.ajustes.addEventListener('click', () => {
       { icono: 'audifonos', texto: `Modo eco${estadoEco.activo ? '  ·  activado' : ''}`, alElegir: abrirModoEco },
       { icono: 'transicion', texto: 'Transición entre canciones', alElegir: elegirTransicion },
       { icono: 'repetidas', texto: 'Quitar canciones repetidas', alElegir: quitarRepetidas },
-      { icono: 'pc', texto: 'Mi PC (servidor Navidrome)', alElegir: () => mostrarVista('servidor') },
+      { icono: 'pc', texto: 'Música de mi computadora (Navidrome)', alElegir: () => mostrarVista('servidor') },
       { icono: 'actualizar', texto: 'Buscar actualizaciones', alElegir: buscarActualizaciones },
     ],
   });
@@ -2365,7 +2365,7 @@ function buscarRepetidas() {
 function quitarRepetidas() {
   const repetidas = buscarRepetidas();
   const total = repetidas.reduce((suma, r) => suma + r.sobran.length, 0);
-  if (!total) return mostrarAviso('No hay canciones repetidas en este teléfono.', 3000);
+  if (!total) return mostrarAviso('No hay canciones repetidas en Mis descargas.', 3000);
 
   const resumen = document.createElement('ul');
   resumen.className = 'repetidas';
@@ -3814,7 +3814,7 @@ async function pintarInicio() {
   // Tus canciones (lo último que guardaste)
   const recientes = [...cancionesLocales].sort((a, b) => (b.agregada ?? 0) - (a.agregada ?? 0)).slice(0, 12);
   if (recientes.length) {
-    partes.push(seccionInicio('Tus canciones', carrusel(recientes.map((cancion) => tarjetaCancion(cancion, urlDePortada(cancion), () => {
+    partes.push(seccionInicio('Tus descargas', carrusel(recientes.map((cancion) => tarjetaCancion(cancion, urlDePortada(cancion), () => {
       listaQueSuena = null;
       reproductor.reproducirLista(cancionesLocales, cancionesLocales.findIndex((c) => c.id === cancion.id));
     })))));
@@ -4161,8 +4161,8 @@ function origenDe(cancion) {
   const lista = listas.find((l) => l.id === listaQueSuena);
   if (lista) return [esPlaylist(lista) ? 'Reproduciendo desde playlist' : 'Reproduciendo desde álbum', lista.nombre];
   if (cancion?.origen === 'nube') return ['Reproduciendo desde', cancion.duenoUsuario ? `@${cancion.duenoUsuario}` : 'Muzzy'];
-  if (cancion?.origen === 'servidor') return ['Reproduciendo desde', 'Mi PC'];
-  return ['Reproduciendo desde', 'Tus canciones'];
+  if (cancion?.origen === 'servidor') return ['Reproduciendo desde', 'tu computadora'];
+  return ['Reproduciendo desde', 'Mis descargas'];
 }
 
 /** La copia de tu biblioteca de lo que suena (o null). */
