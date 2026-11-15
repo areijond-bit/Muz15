@@ -1160,8 +1160,30 @@ function mostrarAviso(texto, ocultarEnMs) {
 
 /* ---------- Arranque ---------- */
 
+// Actualizaciones de la app: el teléfono guarda una copia para funcionar sin
+// internet. Al abrir (o volver a) Muz15 revisamos si hay versión nueva; cuando
+// termina de bajar, recargamos solos si no suena nada, o avisamos si está sonando.
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch((error) => console.error('Service worker:', error));
+  const habiaVersion = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.register('sw.js')
+    .then((registro) => {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') registro.update().catch(() => {});
+      });
+    })
+    .catch((error) => console.error('Service worker:', error));
+
+  let recargando = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!habiaVersion || recargando) return; // primera instalación: no hace falta recargar
+    const aplicar = () => { recargando = true; location.reload(); };
+    if (!reproductor.estado().sonando) return aplicar();
+    abrirHoja({
+      titulo: 'Hay mejoras nuevas en Muz15',
+      subtitulo: 'Se aplican en un segundo (la canción se detiene).',
+      acciones: [{ texto: '⟳ Actualizar ahora', alElegir: aplicar }],
+    });
+  });
 }
 
 recargarLista().catch((error) => {
