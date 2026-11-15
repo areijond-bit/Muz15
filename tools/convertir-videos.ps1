@@ -67,7 +67,7 @@ foreach ($video in $videos) {
   # Si el video no trae título, lo sacamos del nombre: "Artista - Título (Official Video).mp4"
   $tituloEnVideo = & $FFprobe -v error -show_entries format_tags=title -of 'default=nw=1:nk=1' $video.FullName 2>$null
   if (-not $tituloEnVideo) {
-    $limpio = $video.BaseName -replace '\s*[\(\[][^\)\]]*\b(official|oficial|video|lyrics?|letra|audio|visualizer|hd|4k)\b[^\)\]]*[\)\]]', ''
+    $limpio = $video.BaseName -replace '\s*[\(\[][^\)\]]*\b(official|oficial|video|lyrics?|letra|audio|visualizer|hd|hq|4k)\b[^\)\]]*[\)\]]', ''
     if ($limpio -match '^(.+?) - (.+)$') {
       $argumentos += '-metadata', "artist=$($Matches[1].Trim())", '-metadata', "title=$($Matches[2].Trim())"
     } else {

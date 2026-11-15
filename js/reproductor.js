@@ -168,8 +168,10 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
    * @param {number} nuevoIndice
    * @param {object} [como]
    * @param {boolean} [como.conFundido]  true si viene del final natural de la canción
+   * @param {boolean} [como.sinSonar]    solo dejarla lista (pausada), sin reproducir
+   * @param {number} [como.desdeSegundo] empezar en este segundo
    */
-  async function reproducir(nuevoIndice, { conFundido = false } = {}) {
+  async function reproducir(nuevoIndice, { conFundido = false, sinSonar = false, desdeSegundo = 0 } = {}) {
     if (!lista.length) return;
     // Damos la vuelta: después de la última viene la primera, y al revés.
     nuevoIndice = (nuevoIndice + lista.length) % lista.length;
@@ -206,6 +208,21 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
     actualizarMediaSession(lista[indice]);
     avisar();
     avisarProgreso();
+
+    if (sinSonar) {
+      // Al abrir la app: la última canción queda lista, en el segundo donde la dejaste.
+      vaciar(anterior);
+      const ponerSegundo = () => {
+        activa.currentTime = Math.min(desdeSegundo, Math.max((activa.duration || 0) - 1, 0));
+        avisarProgreso();
+        actualizarPosicion();
+      };
+      if (activa.readyState >= 1) ponerSegundo();
+      else activa.addEventListener('loadedmetadata', ponerSegundo, { once: true });
+      cambiarEstadoSesion('paused');
+      prepararSiguiente();
+      return;
+    }
 
     // Primero arranca la nueva y DESPUÉS se apaga la anterior. Si por un instante
     // no sonara nada, Android puede quitar la notificación de "multimedia" y,
@@ -433,6 +450,14 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
       armarOrden();
       vaciar(libre); // lo precargado era de la lista anterior
       return reproducir(desde);
+    },
+    /** Como reproducirLista, pero la deja pausada en ese segundo (para retomar al abrir la app). */
+    prepararLista(nuevaLista, desde, desdeSegundo) {
+      lista = nuevaLista;
+      indice = desde;
+      armarOrden();
+      vaciar(libre);
+      return reproducir(desde, { sinSonar: true, desdeSegundo });
     },
     /**
      * Pone la versión nueva de las canciones (después de editar títulos,

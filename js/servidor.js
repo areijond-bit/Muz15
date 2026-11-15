@@ -149,6 +149,7 @@ const aAlbum = (p) => ({
   total: p.songCount ?? 0,
   portadaId: p.coverArt ?? null,
   publico: Boolean(p.public),
+  cambiada: p.changed ?? null, // cambia cada vez que alguien lo modifica
   dueno: p.owner ?? '',
   mio: !p.owner || p.owner === actual()?.usuario,
 });

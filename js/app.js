@@ -612,12 +612,43 @@ function idEnServidor(cancion) {
   return gemela?.idServidor ?? null;
 }
 
+// Canciones de un álbum que todavía no están en tu servidor: en la PC se envían
+// solas a C:\Music y reintentamos hasta que Navidrome las detecte (y las
+// convierta, si eran video). Unos minutos como máximo.
+const MAXIMO_REINTENTOS = 8;
+const ESPERA_REINTENTO_MS = 40000;
+const reintentos = new Map(); // id de lista → cuántas veces se reintentó
+const subiendo = new Set();   // listas que se están subiendo ahora mismo
+
+async function enviarFaltantesAPC(lista) {
+  const faltan = cancionesDe(lista).filter((c) => !idEnServidor(c));
+  if (!faltan.length || !puedeEnviarAPC) return 0;
+  const veces = reintentos.get(lista.id) ?? 0;
+  if (veces === 0) {
+    mostrarAviso(`"${lista.nombre}": enviando ${faltan.length} canciones a tu PC para que estén en todos tus dispositivos…`, 5000);
+    for (const cancion of faltan) {
+      try { await enviarCancionAPC(cancion); } catch (error) { console.warn('No se pudo enviar', cancion.titulo, error.message); }
+    }
+  }
+  if (veces < MAXIMO_REINTENTOS) {
+    reintentos.set(lista.id, veces + 1);
+    setTimeout(() => {
+      cancionesServidor = []; // volver a leer tu biblioteca: ya deberían estar
+      subirLista(lista.id);
+    }, ESPERA_REINTENTO_MS);
+  }
+  return faltan.length;
+}
+
 async function subirLista(id) {
   subidasPendientes.delete(id);
   const lista = (await listarListas()).find((l) => l.id === id);
   if (!lista || esPlaylist(lista)) return;
+  subiendo.add(id);
   try {
     await asegurarBibliotecaServidor();
+    const faltan = await enviarFaltantesAPC(lista);
+    if (!faltan) reintentos.delete(id);
     let idsCanciones = cancionesDe(lista).map(idEnServidor).filter(Boolean);
     // Los vínculos del álbum, con los ids del servidor.
     const vinculos = {};
@@ -639,18 +670,61 @@ async function subirLista(id) {
     const idServidor = await servidor.guardarPlaylist({
       idServidor: idDestino, nombre: lista.nombre, idsCanciones, vinculos, publico: Boolean(lista.publico),
     });
-    if (idServidor && idServidor !== lista.idServidor) {
-      // Releemos la lista: pudo cambiar mientras se subía (y ese cambio ya tiene su propia subida pendiente).
-      const ultima = (await listarListas()).find((l) => l.id === id);
-      if (ultima) await guardarListaEnTelefono({ ...ultima, idServidor });
-      const enMemoria = listas.find((l) => l.id === id);
-      if (enMemoria) enMemoria.idServidor = idServidor;
-    }
+    // Anotamos el id y la "fecha de cambio" del servidor: así la revisión automática
+    // no confunde nuestro propio cambio con uno hecho en otro dispositivo.
+    // Releemos la lista: pudo cambiar mientras se subía (y ese cambio ya tiene su propia subida pendiente).
+    const { cambiada } = await servidor.obtenerPlaylist(idServidor);
+    const ultima = (await listarListas()).find((l) => l.id === id);
+    if (ultima) await guardarListaEnTelefono({ ...ultima, idServidor, cambiadaServidor: cambiada });
+    const enMemoria = listas.find((l) => l.id === id);
+    if (enMemoria) Object.assign(enMemoria, { idServidor, cambiadaServidor: cambiada });
     await cargarPlaylistsServidor();
   } catch (error) {
     console.warn('No se pudo guardar la lista en tu PC:', error.message);
+  } finally {
+    subiendo.delete(id);
   }
 }
+
+/* ---------- Álbumes al día solos ---------- */
+// Al abrir Muz15, al volver a ella y cada minuto, se revisa si algún álbum que
+// tienes en este dispositivo cambió en otro lado (canciones, orden, nombre,
+// vínculos). Si sí, se bajan las canciones nuevas y el álbum se pone al día.
+
+const REVISAR_ALBUMES_CADA_MS = 60000;
+let revisandoAlbumes = false;
+
+async function actualizarAlbumesSolos() {
+  if (revisandoAlbumes || !servidor.configuracion() || descargaMasiva || document.visibilityState !== 'visible') return;
+  revisandoAlbumes = true;
+  try {
+    const enServidor = await servidor.listarPlaylists();
+    await asegurarBibliotecaServidor();
+    for (const lista of listas) {
+      if (esPlaylist(lista) || !lista.idServidor) continue;
+      // En la PC: si el álbum tiene canciones que tu servidor no tiene, se envían.
+      if (puedeEnviarAPC && !reintentos.has(lista.id) && !subiendo.has(lista.id)
+        && cancionesDe(lista).some((c) => !idEnServidor(c))) {
+        subirLista(lista.id);
+        continue;
+      }
+      // Si se está subiendo un cambio hecho aquí, no lo pisamos con lo de allá.
+      if (subiendo.has(lista.id) || subidasPendientes.has(lista.id)) continue;
+      const allá = enServidor.find((p) => p.idServidor === lista.idServidor);
+      if (!allá || allá.cambiada === lista.cambiadaServidor) continue;
+      await descargarPlaylist(allá, { silencioso: true });
+    }
+  } catch (error) {
+    console.warn('No se pudieron revisar los álbumes:', error.message);
+  } finally {
+    revisandoAlbumes = false;
+  }
+}
+
+setInterval(actualizarAlbumesSolos, REVISAR_ALBUMES_CADA_MS);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') actualizarAlbumesSolos();
+});
 
 async function cargarPlaylistsServidor() {
   if (!servidor.configuracion() || tipoVista === 'playlist') {
@@ -725,40 +799,63 @@ function pintarPlaylistsServidor() {
 const descargandoPlaylist = new Set();
 
 /** Baja las canciones que falten y arma (o pone al día) la lista en este teléfono. */
-async function descargarPlaylist(playlist) {
+/**
+ * Baja las canciones que falten y arma (o pone al día) el álbum en este dispositivo.
+ * Con silencioso (revisión automática) solo avisa si de verdad cambió algo.
+ */
+async function descargarPlaylist(playlist, { silencioso = false } = {}) {
   if (descargandoPlaylist.has(playlist.idServidor)) return;
   descargandoPlaylist.add(playlist.idServidor);
   pintarPlaylistsServidor();
-  const bloqueo = await navigator.wakeLock?.request('screen').catch(() => null);
+  const bloqueo = silencioso ? null : await navigator.wakeLock?.request('screen').catch(() => null);
   try {
     const completo = await servidor.obtenerPlaylist(playlist.idServidor);
-    const canciones = completo.canciones;
-    const faltan = canciones.filter((c) => !localDe(c));
+    await asegurarBibliotecaServidor();
+    // La canción de este dispositivo que corresponde a una del servidor: la bajada
+    // de allá, o una importada aquí con el mismo título (así no se duplica).
+    const local = (idServidor) => cancionesLocales.find((c) => c.idServidor === idServidor)
+      ?? cancionesLocales.find((c) => !c.idServidor && idEnServidor(c) === idServidor);
+    const faltan = completo.canciones.filter((c) => !local(c.idServidor));
     let fallidas = 0;
     for (const [i, cancion] of faltan.entries()) {
-      mostrarAviso(`"${playlist.nombre}": descargando ${i + 1} de ${faltan.length}…`);
+      mostrarAviso(`"${completo.nombre}": descargando ${i + 1} de ${faltan.length}…`);
       if (!await descargarDelServidor(cancion, { silencioso: true })) fallidas++;
     }
     await recargarLista();
-    // Ids del servidor → canciones de este teléfono (para el orden y los vínculos).
-    const local = (idServidor) => cancionesLocales.find((c) => c.idServidor === idServidor);
-    const ids = canciones.map((c) => local(c.idServidor)?.id).filter(Boolean);
+
+    // Ids del servidor → canciones de este dispositivo (para el orden y los vínculos).
+    let ids = completo.canciones.map((c) => local(c.idServidor)?.id).filter(Boolean);
+    const existente = listas.find((l) => l.idServidor === playlist.idServidor);
+    // Nunca se quitan canciones de aquí que tu servidor todavía no tiene (por ejemplo,
+    // las que se están enviando desde la PC): se quedan al final.
+    const soloAqui = (existente ? cancionesDe(existente) : []).filter((c) => !idEnServidor(c)).map((c) => c.id);
+    ids = [...new Set([...ids, ...soloAqui])];
     const vinculos = {};
     for (const [a, b] of Object.entries(completo.vinculos)) {
       if (local(a) && local(b)) vinculos[local(a).id] = local(b).id;
     }
-    const datos = { tipo: 'album', nombre: completo.nombre, canciones: ids, vinculos, publico: completo.publico, idServidor: playlist.idServidor };
-    const existente = listas.find((l) => l.idServidor === playlist.idServidor);
+    const datos = {
+      tipo: 'album', nombre: completo.nombre, canciones: ids, vinculos,
+      publico: completo.publico, idServidor: playlist.idServidor, cambiadaServidor: completo.cambiada,
+    };
+    const antes = existente ? JSON.stringify([existente.nombre, existente.canciones, existente.vinculos ?? {}]) : null;
     const lista = existente
       ? { ...existente, ...datos }
       : { id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`, creada: Date.now(), ...datos };
     await guardarLista(lista, { subir: false }); // viene del servidor: no hace falta subirla
     await recargarLista();
-    mostrarAviso(fallidas
-      ? `"${completo.nombre}" listo, pero ${fallidas} canciones no se pudieron bajar. Toca ⟳ para reintentar.`
-      : `Álbum "${completo.nombre}" descargado: ${ids.length} canciones (ya están en Descargadas).`, 5000);
+
+    const cambio = antes !== JSON.stringify([lista.nombre, lista.canciones, lista.vinculos]);
+    if (fallidas) {
+      mostrarAviso(`"${completo.nombre}": ${fallidas} canciones no se pudieron bajar. Toca ⟳ para reintentar.`, 5000);
+    } else if (!silencioso) {
+      mostrarAviso(`Álbum "${completo.nombre}" descargado: ${ids.length} canciones (ya están en Descargadas).`, 5000);
+    } else if (cambio) {
+      mostrarAviso(`Álbum "${completo.nombre}" actualizado${faltan.length ? ` (${faltan.length} canciones nuevas)` : ''}.`, 4000);
+    }
   } catch (error) {
-    mostrarAviso(`No se pudo descargar "${playlist.nombre}": ${error.message}`, 6000);
+    if (!silencioso) mostrarAviso(`No se pudo descargar "${playlist.nombre}": ${error.message}`, 6000);
+    else console.warn('Revisión de álbum:', error.message);
   } finally {
     bloqueo?.release();
     descargandoPlaylist.delete(playlist.idServidor);
@@ -1285,6 +1382,7 @@ async function descargarDelServidor(cancion, { silencioso = false } = {}) {
 /* ---------- Reproductor ---------- */
 
 function pintarReproductor({ cancion, sonando, aleatorio, urlPortada }) {
+  if (cancion) guardarUltima(!sonando); // cambió de canción o se pausó: guardar ya
   el.aleatorio.setAttribute('aria-pressed', String(aleatorio));
   el.aleatorio.setAttribute('aria-label', `Modo aleatorio: ${aleatorio ? 'encendido' : 'apagado'}`);
   el.titulo.textContent = cancion?.titulo ?? 'Nada sonando';
@@ -1318,10 +1416,58 @@ el.anterior.addEventListener('click', () => reproductor.anterior());
 // Barra de progreso: se mueve sola y también sirve para saltar a otra parte.
 let arrastrando = false;
 function pintarProgreso({ actual, duracion }) {
+  segundoActual = actual;
+  guardarUltima();
   if (arrastrando) return;
   el.progreso.max = duracion;
   el.progreso.value = actual;
 }
+
+/* ---------- Retomar la última canción ---------- */
+// Se recuerda qué sonaba, de dónde (Descargadas o un álbum/playlist) y en qué
+// segundo. Al abrir Muz15 queda lista abajo, pausada: le das ▶ y sigue.
+
+const CLAVE_ULTIMA = 'muz15-ultima';
+let segundoActual = 0;
+let ultimoGuardado = 0;
+
+let retomando = false; // mientras se carga la última canción, no sobrescribir su segundo con 0
+
+function guardarUltima(ahoraMismo = false) {
+  if (retomando) return;
+  const { cancion } = reproductor.estado();
+  if (!cancion || cancion.origen === 'servidor' && !localDe(cancion)) return; // sin descargar: necesitaría internet
+  if (!ahoraMismo && Date.now() - ultimoGuardado < 4000) return;
+  ultimoGuardado = Date.now();
+  try {
+    localStorage.setItem(CLAVE_ULTIMA, JSON.stringify({
+      id: cancion.id,
+      idServidor: cancion.idServidor ?? null,
+      lista: listaQueSuena,
+      segundo: Math.floor(segundoActual),
+    }));
+  } catch { /* nada */ }
+}
+
+async function retomarUltima() {
+  let ultima;
+  try { ultima = JSON.parse(localStorage.getItem(CLAVE_ULTIMA)); } catch { return; }
+  if (!ultima || reproductor.estado().cancion) return;
+  const lista = listas.find((l) => l.id === ultima.lista);
+  const canciones = lista ? cancionesParaReproducir(lista) : cancionesLocales;
+  const i = canciones.findIndex((c) => c.id === ultima.id || (ultima.idServidor && c.idServidor === ultima.idServidor));
+  if (i === -1) return;
+  listaQueSuena = lista?.id ?? null;
+  retomando = true;
+  try {
+    await reproductor.prepararLista(canciones, i, ultima.segundo ?? 0);
+  } finally {
+    setTimeout(() => { retomando = false; }, 1500); // ya se movió al segundo guardado
+  }
+}
+
+// Al pausar o salir de la app se guarda en ese momento (no cada 4 s).
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') guardarUltima(true); });
 el.progreso.addEventListener('input', () => { arrastrando = true; });
 el.progreso.addEventListener('change', () => {
   reproductor.irA(Number(el.progreso.value));
@@ -1334,10 +1480,25 @@ el.progreso.addEventListener('change', () => {
 // para que aparezcan en el celular, en la pestaña Mi PC. Solo existe en la PC,
 // porque lo atiende tools/servidor.mjs.
 
+let puedeEnviarAPC = false; // true solo en la PC con tools/servidor.mjs
 fetch('api/estado')
   .then((respuesta) => (respuesta.ok ? respuesta.json() : null))
-  .then((estado) => { el.enviarPC.hidden = !estado?.enviarAPC; })
+  .then((estado) => {
+    puedeEnviarAPC = Boolean(estado?.enviarAPC);
+    el.enviarPC.hidden = !puedeEnviarAPC;
+  })
   .catch(() => { /* en el celular no existe: el botón se queda oculto */ });
+
+/** Copia una canción a C:\Music. @returns {'nueva' | 'ya'} */
+async function enviarCancionAPC(cancion) {
+  const respuesta = await fetch(`api/subir?nombre=${encodeURIComponent(nombreParaPC(cancion))}`, {
+    method: 'POST',
+    body: await obtenerAudio(cancion),
+  });
+  const resultado = await respuesta.json();
+  if (!respuesta.ok) throw new Error(resultado.error);
+  return resultado.ya ? 'ya' : 'nueva';
+}
 
 /** Nombre del archivo en la PC: "Artista - Título.ext", con lo que editaste aquí. */
 function nombreParaPC(cancion) {
@@ -1357,13 +1518,7 @@ el.enviarPC.addEventListener('click', async () => {
   for (const [i, cancion] of propias.entries()) {
     el.enviarPC.textContent = `Enviando ${i + 1} de ${propias.length}…`;
     try {
-      const respuesta = await fetch(`api/subir?nombre=${encodeURIComponent(nombreParaPC(cancion))}`, {
-        method: 'POST',
-        body: await obtenerAudio(cancion),
-      });
-      const resultado = await respuesta.json();
-      if (!respuesta.ok) throw new Error(resultado.error);
-      if (resultado.ya) yaEstaban++;
+      if (await enviarCancionAPC(cancion) === 'ya') yaEstaban++;
       else nuevas++;
     } catch (error) {
       console.error('No se pudo enviar', cancion.titulo, error);
@@ -1772,8 +1927,10 @@ pedirAlmacenamientoPersistente();
 
 recargarLista()
   .then(async () => {
+    retomarUltima();
     ofrecerRecuperacion();
     avisarSiEsLaVersionDeChrome();
+    actualizarAlbumesSolos();
     await revisarActualizacionLista; // para anotar la versión de la APK
     registrarDiagnostico();
   })
