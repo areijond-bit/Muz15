@@ -1042,3 +1042,16 @@ button { font: inherit; color: inherit; }
 .perfil-explorar__dato { margin: 0; color: var(--color-texto-suave); font-size: var(--texto-s); }
 .perfil-explorar .boton-icono { margin-left: auto; }
 .cancion__acciones { display: flex; align-items: center; flex: none; }
+
+/* Pestaña Perfil (la de la derecha): tu foto o inicial en un circulito */
+.pestana__avatar { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; }
+.pestana__avatar--foto .avatar { --tamano-avatar: 26px; opacity: 0.75; }
+.pestana--activa .pestana__avatar--foto .avatar { opacity: 1; box-shadow: 0 0 0 2px var(--color-fondo), 0 0 0 3.5px var(--color-texto); }
+
+.vista-perfil { padding: var(--espacio-l) var(--espacio-m) 0; }
+.vista-perfil .perfil-hoja { gap: var(--espacio-s); padding-bottom: var(--espacio-l); }
+.vista-perfil .perfil-hoja .pildora { margin-top: var(--espacio-s); }
+.vista-perfil .perfil-hoja .boton-google { max-width: 320px; margin-top: var(--espacio-s); }
+.vista-perfil .avatar .icono { width: 44px; height: 44px; }
+.vista-perfil__acciones { display: flex; flex-direction: column; border-top: 1px solid var(--color-borde); padding-top: var(--espacio-s); }
+.vista-perfil__acciones .hoja__accion:last-child { color: var(--color-texto); justify-content: flex-start; }

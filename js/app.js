@@ -83,7 +83,9 @@ const el = {
   buscarListas: $('buscar-listas'),
   estadoListasPC: $('estado-listas-pc'),
   listasServidor: $('listas-servidor'),
-  perfil: $('perfil'),
+  pestanaPerfil: $('pestana-perfil'),
+  vistaPerfil: $('vista-perfil'),
+  perfilContenido: $('perfil-contenido'),
   escuchandoEn: $('escuchando-en'),
   escuchandoDonde: $('escuchando-donde'),
   escuchandoQue: $('escuchando-que'),
@@ -1609,7 +1611,9 @@ function mostrarVista(vista) {
   el.vistaListas.hidden = vista !== 'listas' && vista !== 'playlists';
   el.vistaServidor.hidden = vista !== 'servidor';
   el.vistaExplorar.hidden = vista !== 'explorar';
+  el.vistaPerfil.hidden = vista !== 'perfil';
   vistaActual = vista;
+  if (vista === 'perfil') pintarVistaPerfil();
   if (vista === 'servidor') abrirServidor();
   if (vista === 'explorar') abrirExplorar();
   if (vista === 'listas' || vista === 'playlists') {
@@ -2179,6 +2183,7 @@ el.ajustes.addEventListener('click', () => {
       { icono: 'audifonos', texto: `Modo eco${estadoEco.activo ? '  ·  activado' : ''}`, alElegir: abrirModoEco },
       { icono: 'transicion', texto: 'Transición entre canciones', alElegir: elegirTransicion },
       { icono: 'repetidas', texto: 'Quitar canciones repetidas', alElegir: quitarRepetidas },
+      { icono: 'pc', texto: 'Mi PC (servidor Navidrome)', alElegir: () => mostrarVista('servidor') },
       { icono: 'actualizar', texto: 'Buscar actualizaciones', alElegir: buscarActualizaciones },
     ],
   });
@@ -2824,15 +2829,13 @@ function crearAvatar(perfil, tamano = 34) {
   return caja;
 }
 
+/** La pestaña de la derecha: tu foto o tu inicial (sin cuenta, el muñequito). */
 function pintarBotonPerfil() {
   const perfil = nube.perfil();
-  if (perfil) {
-    el.perfil.replaceChildren(crearAvatar(perfil, 34));
-    el.perfil.setAttribute('aria-label', `Tu cuenta: @${perfil.usuario}`);
-  } else {
-    el.perfil.innerHTML = icono('persona', 20);
-    el.perfil.setAttribute('aria-label', 'Entrar a tu cuenta');
-  }
+  el.pestanaPerfil.classList.toggle('pestana__avatar--foto', Boolean(perfil));
+  if (perfil) el.pestanaPerfil.replaceChildren(crearAvatar(perfil, 26));
+  else el.pestanaPerfil.innerHTML = icono('persona');
+  if (vistaActual === 'perfil') pintarVistaPerfil();
 }
 
 let temporizadorRecarga;
@@ -3043,45 +3046,87 @@ function pedirPerfil() {
   });
 }
 
-/** Tocar tu foto: tu perfil y lo de tu cuenta. */
-function abrirMiCuenta() {
-  if (!usuarioNube) return ofrecerCuenta();
+/** Pestaña Perfil: tu foto, tu usuario y lo de tu cuenta. */
+function pintarVistaPerfil() {
   const perfil = nube.perfil();
-  if (!perfil) return pedirPerfil();
+  const caja = el.perfilContenido;
+  caja.replaceChildren();
+
   const tarjeta = document.createElement('div');
   tarjeta.className = 'perfil-hoja';
-  const usuario = document.createElement('p');
-  usuario.className = 'perfil-hoja__usuario';
-  usuario.textContent = `@${perfil.usuario}`;
-  const datos = document.createElement('p');
-  datos.className = 'perfil-hoja__dato';
-  datos.textContent = [perfil.nombre, usuarioNube.email].filter(Boolean).join(' · ');
+  const titulo = document.createElement('p');
+  titulo.className = 'perfil-hoja__usuario';
+  const dato = document.createElement('p');
+  dato.className = 'perfil-hoja__dato';
+  caja.append(tarjeta);
+
+  if (!usuarioNube || !perfil) {
+    const { si, motivo } = puedeEntrar();
+    const muneco = document.createElement('span');
+    muneco.className = 'avatar';
+    muneco.style.setProperty('--tamano-avatar', '96px');
+    muneco.innerHTML = icono('persona', 44);
+    titulo.textContent = usuarioNube ? 'Te falta tu perfil' : 'Tu cuenta de Muz15';
+    dato.textContent = !si ? motivo
+      : usuarioNube ? 'Elige tu nombre de usuario y tu foto.'
+        : 'Entra con Google: tu música, tus listas y tu perfil iguales en el cel y en la PC, y lo que suben tus amigos.';
+    tarjeta.append(muneco, titulo, dato);
+    if (si && usuarioNube) {
+      const crear = document.createElement('button');
+      crear.className = 'boton boton--primario';
+      crear.textContent = 'Crear mi perfil';
+      crear.addEventListener('click', pedirPerfil);
+      tarjeta.append(crear);
+    } else if (si) {
+      tarjeta.append(botonGoogle());
+    }
+    caja.append(listaDeAcciones([{ icono: 'ajustes', texto: 'Ajustes', alElegir: () => el.ajustes.click() }]));
+    return;
+  }
+
+  titulo.textContent = `@${perfil.usuario}`;
+  dato.textContent = [perfil.nombre, usuarioNube.email].filter(Boolean).join(' · ');
   const aqui = document.createElement('p');
   aqui.className = 'perfil-hoja__dato';
   aqui.textContent = `Este dispositivo: ${nube.dispositivo().nombre}`;
-  tarjeta.append(crearAvatar(perfil, 88), usuario, datos, aqui);
-  abrirHoja({
-    titulo: 'Tu cuenta',
-    contenido: tarjeta,
-    acciones: [
-      { icono: 'editar', texto: 'Editar perfil', alElegir: pedirPerfil },
-      { icono: 'globo', texto: 'Ver lo que he subido', alElegir: () => verPerfilEnExplorar(perfil) },
-      { icono: 'telefono', texto: 'Nombre de este dispositivo', alElegir: renombrarEsteDispositivo },
-      { icono: 'actualizar', texto: 'Sincronizar ahora', alElegir: sincronizarAhora },
-      {
-        icono: 'salir',
-        texto: 'Cerrar sesión',
-        alElegir: () => confirmar({
-          titulo: '¿Cerrar sesión en este dispositivo?',
-          subtitulo: 'Tus canciones descargadas se quedan aquí. Tu cuenta y tus otros dispositivos siguen igual.',
-          textoBoton: 'Cerrar sesión',
-          alConfirmar: async () => { await salir(); mostrarAviso('Cerraste sesión.', 3000); },
-        }),
-      },
-    ],
-  });
+  const editar = document.createElement('button');
+  editar.className = 'pildora';
+  editar.innerHTML = `${icono('editar', 20)} Editar perfil`;
+  editar.addEventListener('click', pedirPerfil);
+  tarjeta.append(crearAvatar(perfil, 96), titulo, dato, aqui, editar);
+
+  caja.append(listaDeAcciones([
+    { icono: 'globo', texto: 'Lo que he subido', alElegir: () => verPerfilEnExplorar(perfil) },
+    { icono: 'telefono', texto: 'Nombre de este dispositivo', alElegir: renombrarEsteDispositivo },
+    { icono: 'actualizar', texto: 'Sincronizar ahora', alElegir: sincronizarAhora },
+    { icono: 'ajustes', texto: 'Ajustes', alElegir: () => el.ajustes.click() },
+    {
+      icono: 'salir',
+      texto: 'Cerrar sesión',
+      alElegir: () => confirmar({
+        titulo: '¿Cerrar sesión en este dispositivo?',
+        subtitulo: 'Tus canciones descargadas se quedan aquí. Tu cuenta y tus otros dispositivos siguen igual.',
+        textoBoton: 'Cerrar sesión',
+        alConfirmar: async () => { await salir(); mostrarAviso('Cerraste sesión.', 3000); },
+      }),
+    },
+  ]));
 }
-el.perfil.addEventListener('click', abrirMiCuenta);
+
+/** Filas tocables con ícono (como las de las hojas), para la pantalla de perfil. */
+function listaDeAcciones(acciones) {
+  const lista = document.createElement('div');
+  lista.className = 'vista-perfil__acciones';
+  for (const accion of acciones) {
+    const boton = document.createElement('button');
+    boton.className = 'hoja__accion';
+    boton.insertAdjacentHTML('beforeend', icono(accion.icono));
+    boton.append(accion.texto);
+    boton.addEventListener('click', accion.alElegir);
+    lista.append(boton);
+  }
+  return lista;
+}
 
 function renombrarEsteDispositivo() {
   abrirHoja({

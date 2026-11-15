@@ -35,8 +35,6 @@
   <!-- Los <span data-icono="…"> se llenan con íconos dibujados (js/iconos.js) -->
   <header class="cabecera">
     <h1 class="marca">Muz<span class="marca__numero">15</span></h1>
-    <!-- Tu foto (o tu inicial). Sin cuenta: botón para entrar. -->
-    <button id="perfil" class="boton-avatar" aria-label="Tu cuenta"><span data-icono="persona"></span></button>
     <button id="ajustes" class="boton-icono" aria-label="Ajustes"><span data-icono="ajustes"></span></button>
     <label class="boton-icono" aria-label="Importar canciones del teléfono">
       <span data-icono="subir"></span>
@@ -148,7 +146,12 @@
       </div>
     </section>
 
-    <!-- Canciones de tu servidor Navidrome -->
+    <!-- Tu perfil: foto, usuario y lo de tu cuenta -->
+    <section id="vista-perfil" hidden>
+      <div id="perfil-contenido" class="vista-perfil"></div>
+    </section>
+
+    <!-- Canciones de tu servidor Navidrome (se abre desde Ajustes → Mi PC) -->
     <section id="vista-servidor" hidden>
       <div class="encabezado-vista">
         <h2 class="encabezado-vista__titulo">Mi PC</h2>
@@ -210,7 +213,8 @@
     <button class="pestana" data-vista="explorar"><span data-icono="globo"></span><span>Explorar</span></button>
     <button class="pestana" data-vista="listas"><span data-icono="album"></span><span>Álbumes</span></button>
     <button class="pestana" data-vista="playlists"><span data-icono="playlist"></span><span>Playlists</span></button>
-    <button class="pestana" data-vista="servidor"><span data-icono="pc"></span><span>Mi PC</span></button>
+    <!-- La última: tu foto (o tu inicial), como en Spotify -->
+    <button class="pestana" data-vista="perfil"><span id="pestana-perfil" class="pestana__avatar"><span data-icono="persona"></span></span><span>Perfil</span></button>
   </nav>
 </body>
 </html>
