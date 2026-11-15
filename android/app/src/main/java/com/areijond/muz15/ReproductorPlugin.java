@@ -215,6 +215,28 @@ public class ReproductorPlugin extends Plugin {
         });
     }
 
+    /** Para el registro de diagnóstico: ¿los efectos están creados y con el control? */
+    @PluginMethod
+    public void diagnostico(PluginCall llamada) {
+        principal.post(() -> {
+            JSObject d = new JSObject();
+            ServicioMusica s = ServicioMusica.instancia;
+            d.put("android", android.os.Build.VERSION.SDK_INT);
+            d.put("servicio", s != null);
+            if (s != null) {
+                d.put("efectosCreados", s.efectosCreados());
+                d.put("efectosConControl", s.efectosConControl());
+                d.put("efectosEncendidos", s.efectosEncendidos());
+                d.put("vecesAplicado", s.vecesAplicado);
+                d.put("errorEfectos", s.ultimoErrorEfectos);
+                d.put("sesionAudio", s.sesionDeAudio());
+                d.put("sesionesRegistradas", s.getSessions().size());
+                d.put("sonando", s.reproductor != null && s.reproductor.isPlaying());
+            }
+            llamada.resolve(d);
+        });
+    }
+
     private static float[] aFlotantes(JSArray arreglo) {
         if (arreglo == null || arreglo.length() != 8) return null;
         float[] valores = new float[8];

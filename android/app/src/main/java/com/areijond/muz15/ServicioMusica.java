@@ -71,6 +71,10 @@ public class ServicioMusica extends MediaSessionService {
         Intent abrirApp = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent alTocar = PendingIntent.getActivity(this, 0, abrirApp, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         sesion = new MediaSession.Builder(this, reproductor).setSessionActivity(alTocar).build();
+        // Registrar la sesión: así Android pone la notificación con controles, la
+        // pantalla de bloqueo y el carro, y mantiene vivo el servicio mientras suena.
+        // (Sin esto solo se registra si una pantalla se conecta como "controlador".)
+        addSession(sesion);
 
         aplicarEfectos();
         instancia = this;
@@ -140,6 +144,15 @@ public class ServicioMusica extends MediaSessionService {
         aplicarEfectos();
     }
 
+    // Para el diagnóstico (lo lee la app y lo anota en tu servidor).
+    String ultimoErrorEfectos = null;
+    int vecesAplicado = 0;
+
+    boolean efectosCreados() { return efectos != null; }
+    boolean efectosConControl() { return efectos != null && efectos.hasControl(); }
+    boolean efectosEncendidos() { return efectos != null && efectos.getEnabled(); }
+    int sesionDeAudio() { return sesionAudio; }
+
     private void aplicarEfectos() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return; // DynamicsProcessing es de Android 9+
         try {
@@ -152,7 +165,13 @@ public class ServicioMusica extends MediaSessionService {
                     false, 0, // sin ecualizador al final
                     true // limitador
                 ).build();
-                efectos = new DynamicsProcessing(0, sesionAudio, config);
+                // Prioridad máxima: en Samsung los efectos del propio teléfono (SoundAlive,
+                // Dolby Atmos) se quedaban con el control y los de Muz15 no hacían nada.
+                efectos = new DynamicsProcessing(Integer.MAX_VALUE, sesionAudio, config);
+                // Si otro efecto nos quita el control y luego lo devuelve, volvemos a aplicar.
+                efectos.setControlStatusListener((efecto, tieneControl) -> {
+                    if (tieneControl) aplicarEfectos();
+                });
             }
             // Canal 0 = oído izquierdo, canal 1 = oído derecho.
             for (int canal = 0; canal < 2; canal++) {
@@ -164,8 +183,16 @@ public class ServicioMusica extends MediaSessionService {
             // Limitador: frena rápido (1 ms), suelta en 60 ms, y casi no deja pasar nada (10:1).
             efectos.setLimiterAllChannelsTo(new DynamicsProcessing.Limiter(true, topeActivo, 0, 1f, 60f, 10f, umbralTopeDb, 0f));
             efectos.setEnabled(true);
+            vecesAplicado++;
+            ultimoErrorEfectos = null;
         } catch (Exception error) {
             Log.w(TAG, "No se pudieron aplicar los efectos", error);
+            ultimoErrorEfectos = error.getClass().getSimpleName() + ": " + error.getMessage();
+            // Si el efecto quedó en mal estado, lo soltamos para crearlo de nuevo la próxima vez.
+            if (efectos != null) {
+                try { efectos.release(); } catch (Exception ignorar) { /* nada */ }
+                efectos = null;
+            }
         }
     }
 }

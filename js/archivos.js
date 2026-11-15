@@ -9,15 +9,12 @@
 
 import { Capacitor, registerPlugin } from './vendor/capacitor-core.js';
 
-/** Plan B: si el reproductor nativo fallara, en ⚙ se puede volver al de la página. */
-export const CLAVE_USAR_ANTERIOR = 'muz15-usar-reproductor-anterior';
-let usarAnterior = false;
-try { usarAnterior = localStorage.getItem(CLAVE_USAR_ANTERIOR) === '1'; } catch { /* nada */ }
+/** true si esta APK trae el reproductor nativo (desde la APK 1.6). */
+export const hayReproductorNativo = Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('Reproductor');
+export const Reproductor = hayReproductorNativo ? registerPlugin('Reproductor') : null;
 
-/** true si esta APK trae el reproductor nativo (desde la APK 1.5) y no se pidió el anterior. */
-export const apkConReproductorNativo = Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('Reproductor');
-export const hayReproductorNativo = apkConReproductorNativo && !usarAnterior;
-export const Reproductor = apkConReproductorNativo ? registerPlugin('Reproductor') : null;
+// (Hubo un "plan B" para volver al reproductor de la página; ya no hace falta.)
+try { localStorage.removeItem('muz15-usar-reproductor-anterior'); } catch { /* nada */ }
 
 const TAMANO_PEDAZO = 768 * 1024; // se manda en pedazos para no trabar la app
 
@@ -80,6 +77,27 @@ export async function existe(ruta) {
 
 export async function borrar(ruta) {
   await Reproductor.borrar({ ruta }).catch(() => {});
+}
+
+/**
+ * Libera la copia que quedó dentro de la página de las canciones que ya viven
+ * como archivo, solo si el archivo existe y no está vacío.
+ * @returns {Promise<number>} cuántas se liberaron
+ */
+export async function liberarCopias(canciones, { tieneCopia, liberarAudio }) {
+  let liberadas = 0;
+  for (const cancion of canciones.filter((c) => c.enArchivo)) {
+    try {
+      if (!await tieneCopia(cancion.id)) continue;
+      const { existe: hay, bytes } = await Reproductor.existe({ ruta: rutaAudio(cancion) });
+      if (!hay || !bytes) continue; // sin archivo bueno, la copia se queda
+      await liberarAudio(cancion.id);
+      liberadas++;
+    } catch (error) {
+      console.warn('No se pudo liberar', cancion.titulo, error.message);
+    }
+  }
+  return liberadas;
 }
 
 /**

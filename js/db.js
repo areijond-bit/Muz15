@@ -128,6 +128,13 @@ export async function liberarAudio(id) {
   await transaccionTerminada(tx);
 }
 
+/** ¿Todavía guarda la página el audio de esta canción (no vacío)? */
+export async function tieneAudio(id) {
+  const db = await abrirDB();
+  const buffer = await comoPromesa(db.transaction(AUDIOS).objectStore(AUDIOS).get(id));
+  return Boolean(buffer?.byteLength);
+}
+
 /** Borra una canción, su audio, y la saca de todas las listas. */
 export async function borrarCancion(id) {
   const db = await abrirDB();

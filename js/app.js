@@ -3,15 +3,15 @@
 import {
   guardarCancion, listarCanciones, obtenerAudio, borrarCancion, pedirAlmacenamientoPersistente, espacioUsado,
   listarListas, guardarLista as guardarListaEnTelefono, borrarLista as borrarListaEnTelefono,
-  actualizarCancion, guardarOrden,
+  actualizarCancion, guardarOrden, liberarAudio, tieneAudio,
 } from './db.js';
 import { activarArrastre } from './arrastrar.js';
 import { leerMetadatos } from './metadatos.js';
 import { crearReproductor } from './reproductor.js';
 import { crearReproductorNativo } from './reproductor-nativo.js';
 import {
-  hayReproductorNativo, apkConReproductorNativo, CLAVE_USAR_ANTERIOR,
-  Reproductor, rutaAudio, rutaPortada, urlDe, trasladar, borrar as borrarArchivo,
+  hayReproductorNativo, Reproductor, rutaAudio, rutaPortada, urlDe, trasladar, liberarCopias,
+  borrar as borrarArchivo,
 } from './archivos.js';
 import * as servidor from './servidor.js';
 import { abrirHoja, confirmar } from './hoja.js';
@@ -128,26 +128,35 @@ async function fuenteNativa(cancion) {
 // del teléfono para que el reproductor nativo pueda leerlas. Solo una vez cada una.
 
 let trasladando = null;
+const CLAVE_COPIAS_LIBERADAS = 'muz15-copias-liberadas';
 function asegurarArchivos() {
   if (!hayReproductorNativo) return Promise.resolve();
   if (!trasladando) {
     trasladando = (async () => {
       const pendientes = cancionesLocales.filter((c) => !c.enArchivo);
-      if (!pendientes.length) return;
-      const muchas = pendientes.length > 3;
-      await trasladar(pendientes, {
-        obtenerAudio,
-        actualizarCancion,
-        // Por ahora se conserva también la copia de la página: así el plan B
-        // ("usar el reproductor anterior") sigue funcionando. Cuando el nuevo
-        // esté probado, aquí va liberarAudio para no ocupar doble espacio.
-        liberarAudio: async () => {},
-        alAvanzar: (i, total) => {
-          if (muchas) mostrarAviso(`Preparando tus canciones para el reproductor nuevo: ${i} de ${total}…`);
-        },
-      });
-      cancionesLocales = await listarCanciones();
-      if (muchas) mostrarAviso('Listo: tus canciones ya están en el reproductor nuevo.', 4000);
+      if (pendientes.length) {
+        const muchas = pendientes.length > 3;
+        await trasladar(pendientes, {
+          obtenerAudio,
+          actualizarCancion,
+          liberarAudio, // ya a salvo como archivo: no ocupa doble espacio
+          alAvanzar: (i, total) => {
+            if (muchas) mostrarAviso(`Preparando tus canciones para el reproductor nuevo: ${i} de ${total}…`);
+          },
+        });
+        cancionesLocales = await listarCanciones();
+        if (muchas) mostrarAviso('Listo: tus canciones ya están en el reproductor nuevo.', 4000);
+      }
+      // Las que se trasladaron antes (con la APK 1.6) todavía tienen la copia de la
+      // página: se libera, solo si su archivo está bien.
+      if (!localStorage.getItem(CLAVE_COPIAS_LIBERADAS)) {
+        const liberadas = await liberarCopias(cancionesLocales, { tieneCopia: tieneAudio, liberarAudio });
+        try { localStorage.setItem(CLAVE_COPIAS_LIBERADAS, '1'); } catch { /* nada */ }
+        if (liberadas) {
+          mostrarAviso(`Se liberó el espacio doble de ${liberadas} canciones.`, 4000);
+          pintarEspacio();
+        }
+      }
     })().finally(() => { trasladando = null; });
   }
   return trasladando;
@@ -357,6 +366,11 @@ async function registrarDiagnostico() {
       usadoMB: espacio ? Math.round(espacio.usado / 1048576) : null,
       totalMB: espacio ? Math.round(espacio.total / 1048576) : null,
       bases: await indexedDB.databases?.().then((d) => d.map((x) => `${x.name}@${x.version}`)).catch(() => null) ?? null,
+      // APK con reproductor nativo: estado de los efectos (ecualizador, eco, volumen seguro).
+      nativo: hayReproductorNativo ? await Reproductor.diagnostico?.().catch((e) => ({ error: e.message })) ?? null : null,
+      eq: estadoEq.activo ? estadoEq.ganancias : null,
+      tope: volumenSeguro.activo ? `${volumenSeguro.db}/${volumenSeguro.referencia}` : null,
+      eco: estadoEco.activo,
     };
     const nombre = `Muz15 · Diagnóstico (${[modeloTelefono, esApk ? 'APK' : 'navegador'].filter(Boolean).join(' · ')})`;
     const existente = (await servidor.listarPlaylists()).find((p) => p.nombre === nombre);
@@ -1792,15 +1806,6 @@ el.ajustes.addEventListener('click', () => {
       { texto: '⇄ Transición entre canciones', alElegir: elegirTransicion },
       { texto: '🧹 Quitar canciones repetidas', alElegir: quitarRepetidas },
       { texto: '⟳ Buscar actualizaciones', alElegir: buscarActualizaciones },
-      ...(apkConReproductorNativo ? [{
-        texto: hayReproductorNativo
-          ? '↩ Usar el reproductor anterior (si el nuevo falla)'
-          : '▶ Volver al reproductor nuevo (sigue sonando al cerrar la app)',
-        alElegir: () => {
-          try { localStorage.setItem(CLAVE_USAR_ANTERIOR, hayReproductorNativo ? '1' : '0'); } catch { /* nada */ }
-          location.reload();
-        },
-      }] : []),
     ],
   });
 });
@@ -1946,8 +1951,12 @@ function crearEfectosNativos() {
     clearTimeout(pendiente);
     pendiente = setTimeout(() => {
       Reproductor.efectos({ ganancias, lados, umbralDb }).catch((error) => console.warn('Efectos:', error.message));
+      // Unos segundos después, anotamos en el registro si los efectos quedaron aplicados.
+      clearTimeout(diagnosticoPendiente);
+      diagnosticoPendiente = setTimeout(() => registrarDiagnostico(), 5000);
     }, 60);
   };
+  let diagnosticoPendiente = null;
   return {
     conectado: true,
     conectar() {},
