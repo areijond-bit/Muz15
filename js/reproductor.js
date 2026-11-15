@@ -17,14 +17,17 @@ const SEGUNDOS_PARA_REINICIAR = 3;
 /**
  * @param {HTMLAudioElement} audio
  * @param {object} opciones
- * @param {(cancion) => Promise<Blob>} opciones.obtenerAudio  carga el audio de una canción
+ * @param {(cancion) => Promise<{audio: string, portada: string | null}>} opciones.obtenerFuente
+ *        devuelve las direcciones del audio y la portada: blob: si está en el teléfono,
+ *        https: si suena desde el servidor
  * @param {(estado) => void} opciones.alCambiar  se llama cada vez que algo cambia, para pintar la UI
+ * @param {(mensaje: string) => void} opciones.alFallar  cuando una canción no se puede cargar
  */
-export function crearReproductor(audio, { obtenerAudio, alCambiar }) {
+export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) {
   let lista = [];
   let indice = -1;
-  let urlAudio = null;   // URL temporal del audio actual (hay que liberarla al cambiar)
-  let urlPortada = null; // igual para la portada
+  let urlAudio = null;   // dirección del audio actual
+  let urlPortada = null; // dirección de la portada actual
 
   const estado = () => ({
     cancion: lista[indice] ?? null,
@@ -43,9 +46,12 @@ export function crearReproductor(audio, { obtenerAudio, alCambiar }) {
     const cancion = lista[indice];
 
     liberarURLs();
-    urlAudio = URL.createObjectURL(await obtenerAudio(cancion));
-    if (cancion.portada) {
-      urlPortada = URL.createObjectURL(new Blob([cancion.portada.datos], { type: cancion.portada.tipo }));
+    try {
+      ({ audio: urlAudio, portada: urlPortada } = await obtenerFuente(cancion));
+    } catch (error) {
+      console.error(error);
+      alFallar?.(error.message);
+      return;
     }
 
     audio.src = urlAudio;
@@ -61,9 +67,11 @@ export function crearReproductor(audio, { obtenerAudio, alCambiar }) {
     }
   }
 
+  // Las direcciones blob: ocupan memoria hasta que se liberan; las https: no.
   function liberarURLs() {
-    if (urlAudio) URL.revokeObjectURL(urlAudio);
-    if (urlPortada) URL.revokeObjectURL(urlPortada);
+    for (const url of [urlAudio, urlPortada]) {
+      if (url?.startsWith('blob:')) URL.revokeObjectURL(url);
+    }
     urlAudio = urlPortada = null;
   }
 
@@ -95,14 +103,13 @@ export function crearReproductor(audio, { obtenerAudio, alCambiar }) {
   function actualizarMediaSession(cancion) {
     if (!('mediaSession' in navigator)) return;
     const portada = urlPortada ?? PORTADA_POR_DEFECTO;
-    const tipo = cancion.portada?.tipo ?? 'image/png';
     navigator.mediaSession.metadata = new MediaMetadata({
       title: cancion.titulo,
       artist: cancion.artista,
       album: cancion.album || 'Muz15',
       artwork: [
-        { src: portada, sizes: '512x512', type: tipo },
-        { src: portada, sizes: '256x256', type: tipo },
+        { src: portada, sizes: '512x512' },
+        { src: portada, sizes: '256x256' },
       ],
     });
   }
@@ -168,19 +175,27 @@ export function crearReproductor(audio, { obtenerAudio, alCambiar }) {
   registrarControles();
 
   return {
-    /** Cambia la lista de canciones sin cortar la que está sonando. */
-    cargarLista(nuevaLista) {
-      const actual = lista[indice];
+    /** Pone una lista (la del teléfono o la del servidor) y empieza en esa canción. */
+    reproducirLista(nuevaLista, desde) {
       lista = nuevaLista;
-      indice = actual ? lista.findIndex((c) => c.id === actual.id) : -1;
-      if (actual && indice === -1) { // borraron la canción que sonaba
+      return reproducir(desde);
+    },
+    /** Saca una canción borrada de la lista; si era la que sonaba, la detiene. */
+    quitar(id) {
+      const posicion = lista.findIndex((c) => c.id === id);
+      if (posicion === -1) return;
+      if (posicion === indice) {
         audio.pause();
         audio.removeAttribute('src');
+        audio.load();
         liberarURLs();
+        indice = -1;
+      } else if (posicion < indice) {
+        indice--;
       }
+      lista = lista.filter((c) => c.id !== id);
       avisar();
     },
-    reproducir,
     alternar,
     siguiente,
     anterior,

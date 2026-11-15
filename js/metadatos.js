@@ -35,8 +35,11 @@ export function leerMetadatos(buffer, nombreArchivo) {
 
 /* ---------- Nombre del archivo ---------- */
 
+// Quita del nombre cosas como "(Official Video)", "[Video Oficial]" o "(Lyrics)".
+const ETIQUETAS_DE_VIDEO = /\s*[([][^)\]]*\b(official|oficial|video|lyrics?|letra|audio|visualizer|hd|4k)\b[^)\]]*[)\]]/gi;
+
 function desdeNombre(nombreArchivo) {
-  const sinExtension = nombreArchivo.replace(/\.[^.]+$/, '').trim();
+  const sinExtension = nombreArchivo.replace(/\.[^.]+$/, '').replace(ETIQUETAS_DE_VIDEO, '').trim();
   const partes = sinExtension.split(' - ');
   if (partes.length >= 2) {
     return { artista: partes[0].trim(), titulo: partes.slice(1).join(' - ').trim() };

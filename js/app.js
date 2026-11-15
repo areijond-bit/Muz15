@@ -23,11 +23,22 @@ const el = {
 
 // URLs temporales de las portadas de la lista (las liberamos al volver a pintar).
 let urlsPortadas = [];
+let cancionesLocales = [];
 
 const reproductor = crearReproductor(el.audio, {
-  obtenerAudio,
+  obtenerFuente,
   alCambiar: pintarReproductor,
+  alFallar: (mensaje) => mostrarAviso(mensaje, 5000),
 });
+
+/** Direcciones del audio y la portada de una canción guardada en el teléfono. */
+async function obtenerFuente(cancion) {
+  const audio = URL.createObjectURL(await obtenerAudio(cancion));
+  const portada = cancion.portada
+    ? URL.createObjectURL(new Blob([cancion.portada.datos], { type: cancion.portada.tipo }))
+    : null;
+  return { audio, portada };
+}
 
 /* ---------- Importar ---------- */
 
@@ -42,13 +53,14 @@ el.importar.addEventListener('change', async () => {
     try {
       const buffer = await archivo.arrayBuffer();
       const meta = leerMetadatos(buffer, archivo.name);
+      if (!meta.portada && esVideo(archivo)) meta.portada = await portadaDeVideo(archivo);
       await guardarCancion({
         id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
         titulo: meta.titulo,
         artista: meta.artista,
         album: meta.album,
         portada: meta.portada,
-        tipo: archivo.type || tipoPorExtension(archivo.name),
+        tipo: tipoParaGuardar(archivo),
         nombreArchivo: archivo.name,
         agregada: Date.now() + i, // + i para mantener el orden aunque sea el mismo milisegundo
       }, buffer);
@@ -64,17 +76,62 @@ el.importar.addEventListener('change', async () => {
   await recargarLista();
 });
 
+const EXTENSIONES_VIDEO = ['mp4', 'm4v', 'mov'];
+const extensionDe = (nombre) => nombre.split('.').pop().toLowerCase();
+const esVideo = (archivo) => archivo.type.startsWith('video/') || EXTENSIONES_VIDEO.includes(extensionDe(archivo.name));
+
 function tipoPorExtension(nombre) {
-  const extension = nombre.split('.').pop().toLowerCase();
-  return { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav' }[extension] || 'audio/mpeg';
+  const tipos = { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', mp4: 'audio/mp4', m4v: 'audio/mp4', mov: 'video/quicktime' };
+  return tipos[extensionDe(nombre)] || 'audio/mpeg';
+}
+
+// Los videos se guardan tal cual y el <audio> reproduce solo su sonido.
+// Para MP4 decimos "audio/mp4" para que el teléfono lo trate como música.
+function tipoParaGuardar(archivo) {
+  if (archivo.type === 'video/mp4') return 'audio/mp4';
+  return archivo.type || tipoPorExtension(archivo.name);
+}
+
+/**
+ * Saca un cuadro del video (segundo 3, o la mitad si es más corto),
+ * lo recorta en cuadrado y lo devuelve como portada JPEG.
+ */
+function portadaDeVideo(archivo) {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    const url = URL.createObjectURL(archivo);
+    const terminar = (portada) => { URL.revokeObjectURL(url); resolve(portada); };
+    setTimeout(() => terminar(null), 8000); // si el teléfono no puede, seguimos sin portada
+
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.onerror = () => terminar(null);
+    video.onloadedmetadata = () => { video.currentTime = Math.min(3, (video.duration || 0) / 2); };
+    video.onseeked = () => {
+      const lado = Math.min(video.videoWidth, video.videoHeight);
+      if (!lado) return terminar(null);
+      const tamano = Math.min(lado, 600);
+      const lienzo = document.createElement('canvas');
+      lienzo.width = lienzo.height = tamano;
+      lienzo.getContext('2d').drawImage(
+        video,
+        (video.videoWidth - lado) / 2, (video.videoHeight - lado) / 2, lado, lado,
+        0, 0, tamano, tamano,
+      );
+      lienzo.toBlob(async (blob) => {
+        terminar(blob ? { datos: await blob.arrayBuffer(), tipo: 'image/jpeg' } : null);
+      }, 'image/jpeg', 0.85);
+    };
+    video.src = url;
+  });
 }
 
 /* ---------- Lista ---------- */
 
 async function recargarLista() {
-  const canciones = await listarCanciones();
-  reproductor.cargarLista(canciones);
-  pintarLista(canciones);
+  cancionesLocales = await listarCanciones();
+  pintarLista(cancionesLocales);
   pintarEspacio();
 }
 
@@ -107,11 +164,12 @@ function pintarLista(canciones) {
       evento.stopPropagation(); // que no empiece a sonar al borrar
       if (!confirm(`¿Borrar "${cancion.titulo}" del teléfono?`)) return;
       await borrarCancion(cancion.id);
+      reproductor.quitar(cancion.id);
       await recargarLista();
     });
 
     li.append(img, info, borrar);
-    li.addEventListener('click', () => reproductor.reproducir(i));
+    li.addEventListener('click', () => reproductor.reproducirLista(cancionesLocales, i));
     return li;
   }));
 
@@ -149,7 +207,11 @@ function pintarReproductor({ cancion, sonando, urlPortada }) {
   marcarSonando(cancion);
 }
 
-el.alternar.addEventListener('click', () => reproductor.alternar());
+el.alternar.addEventListener('click', () => {
+  // Si no ha sonado nada todavía, ▶ empieza por la primera canción del teléfono.
+  if (reproductor.estado().cancion) reproductor.alternar();
+  else reproductor.reproducirLista(cancionesLocales, 0);
+});
 el.siguiente.addEventListener('click', () => reproductor.siguiente());
 el.anterior.addEventListener('click', () => reproductor.anterior());
 
