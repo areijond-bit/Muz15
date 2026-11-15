@@ -187,6 +187,20 @@ alter table public.escuchando enable row level security;
 drop policy if exists "escuchando: solo tú" on public.escuchando;
 create policy "escuchando: solo tú" on public.escuchando for all to authenticated using (usuario = auth.uid()) with check (usuario = auth.uid());
 
+-- ---------- Almacén de archivos en Supabase (audios, portadas, fotos) ----------
+-- 1 GB gratis. Cualquiera puede escuchar/ver (público); solo quien entró puede subir,
+-- y solo a estas carpetas. Los archivos no se pisan (el mismo audio = el mismo nombre).
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('muzzy', 'muzzy', true, 52428800, array[
+  'audio/webm', 'audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/wav', 'audio/ogg',
+  'image/jpeg', 'image/png', 'image/webp'
+])
+on conflict (id) do update set public = excluded.public, file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+drop policy if exists "muzzy: subir quien entró" on storage.objects;
+create policy "muzzy: subir quien entró" on storage.objects for insert to authenticated
+  with check (bucket_id = 'muzzy' and (storage.foldername(name))[1] in ('audios', 'portadas', 'fotos'));
+
 -- ---------- Tiempo real: avisar al momento de los cambios ----------
 do $$
 declare tabla text;

@@ -12,6 +12,7 @@
 // internet. Esto solo mantiene ese contenido igual al de tu cuenta.
 
 import { supabase } from './cuenta.js';
+import { ALMACEN } from './config.js';
 import { comprimir, huella } from './comprimir.js';
 import {
   listarCanciones, listarListas, actualizarCancion, guardarCancion, guardarLista, borrarLista,
@@ -155,10 +156,17 @@ function traducir(error) {
 
 /* ---------- Archivos en R2 ---------- */
 
+const CUBETA = 'muzzy'; // el almacén de Supabase
+const EXTENSION_DE = {
+  'audio/webm': 'webm', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/wav': 'wav', 'audio/ogg': 'ogg',
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
+};
+
 /** Sube un archivo (si no estaba ya) y devuelve su dirección pública. */
 async function subirArchivo(clase, datos, tipo, huellaConocida) {
   const cuerpo = datos instanceof Blob ? datos : new Blob([datos], { type: tipo });
   const firma = huellaConocida ?? await huella(await cuerpo.arrayBuffer());
+  if (ALMACEN === 'supabase') return subirASupabase(clase, cuerpo, tipo, firma);
   const { data, error } = await db().functions.invoke('firmar', {
     body: { clase, huella: firma, tipo, bytes: cuerpo.size },
   });
@@ -168,6 +176,19 @@ async function subirArchivo(clase, datos, tipo, huellaConocida) {
     if (!respuesta.ok) throw new Error(`No se pudo subir el archivo (${respuesta.status})`);
   }
   return data.publica;
+}
+
+/** Al almacén de Supabase: audios/<huella>.webm, portadas/<huella>.jpg, fotos/<tú>-….jpg */
+async function subirASupabase(clase, cuerpo, tipo, firma) {
+  const extension = EXTENSION_DE[tipo] ?? 'bin';
+  const nombre = clase === 'foto' ? `fotos/${yo}-${firma.slice(0, 16)}.${extension}` : `${clase}s/${firma}.${extension}`;
+  const almacen = db().storage.from(CUBETA);
+  const { error } = await almacen.upload(nombre, cuerpo, { contentType: tipo, upsert: false, cacheControl: '31536000' });
+  // Si ya estaba (el mismo archivo lo subió alguien), no se sube otra vez.
+  if (error && !/exists|duplicate/i.test(error.message) && String(error.statusCode) !== '409') {
+    throw new Error(`No se pudo subir el archivo: ${error.message}`);
+  }
+  return almacen.getPublicUrl(nombre).data.publicUrl;
 }
 
 async function bajarBytes(direccion) {
