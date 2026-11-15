@@ -4,10 +4,10 @@
 // Dónde sale cada uno: ver docs/nube.md.
 
 /** Supabase → Project Settings → API → Project URL */
-export const SUPABASE_URL = '';
+export const SUPABASE_URL = 'https://sslzsoeyghcptpkemvef.supabase.co';
 
-/** Supabase → Project Settings → API → anon / public key */
-export const SUPABASE_LLAVE_PUBLICA = '';
+/** Supabase → Project Settings → API Keys → Publishable key */
+export const SUPABASE_LLAVE_PUBLICA = 'sb_publishable_0Q5BCi9VZ29gziOnd5VBsA_NYrfbdbo';
 
 /** Google Cloud → Credenciales → ID de cliente de tipo "Aplicación web" */
 export const GOOGLE_CLIENTE_WEB = '';
