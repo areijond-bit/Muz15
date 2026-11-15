@@ -48,6 +48,26 @@ function abrirDB() {
   return promesaDB;
 }
 
+/* ---------- Avisar cambios (para la nube) ---------- */
+// Cada cambio hecho en ESTE dispositivo lleva "cambiada" (cuándo) y avisa con el
+// evento "muz15-cambio"; nube.js lo sube a tu Google Drive. Lo que llega de la nube
+// se guarda con { desdeNube: true }: no se marca ni se avisa (si no, rebotaría).
+
+// Datos que son solo de este dispositivo (no se comparan ni se suben).
+const SOLO_DE_AQUI = new Set(['portada', 'enArchivo', 'cambiada', 'nube']);
+
+/** Lo que se sincroniza de una canción o lista, para saber si de verdad cambió. */
+export function firmaDatos(objeto) {
+  if (!objeto) return '';
+  const datos = Object.keys(objeto).filter((k) => !SOLO_DE_AQUI.has(k)).sort().map((k) => [k, objeto[k]]);
+  const portada = objeto.portada?.datos?.byteLength ?? 0;
+  return JSON.stringify(datos) + portada;
+}
+
+function avisar(tipo, id, borrada = false) {
+  try { window.dispatchEvent(new CustomEvent('muz15-cambio', { detail: { tipo, id, borrada } })); } catch { /* nada */ }
+}
+
 /** Convierte un pedido de IndexedDB (con callbacks) en una promesa. */
 function comoPromesa(pedido) {
   return new Promise((resolve, reject) => {
@@ -70,20 +90,33 @@ function transaccionTerminada(tx) {
  * @param {object} cancion  datos: { id, titulo, artista, album, tipo, portada, agregada }
  * @param {ArrayBuffer} audio  el archivo de audio completo
  */
-export async function guardarCancion(cancion, audio) {
+export async function guardarCancion(cancion, audio, { desdeNube = false } = {}) {
   const db = await abrirDB();
   const tx = db.transaction([CANCIONES, AUDIOS], 'readwrite');
-  tx.objectStore(CANCIONES).put(cancion);
+  tx.objectStore(CANCIONES).put(desdeNube ? cancion : { ...cancion, cambiada: Date.now() });
   tx.objectStore(AUDIOS).put(audio, cancion.id);
   await transaccionTerminada(tx);
+  if (!desdeNube) avisar('cancion', cancion.id);
 }
 
 /** Cambia los datos de una canción (título, artista, portada, vínculo...) sin tocar su audio. */
-export async function actualizarCancion(cancion) {
+export async function actualizarCancion(cancion, { desdeNube = false } = {}) {
   const db = await abrirDB();
   const tx = db.transaction(CANCIONES, 'readwrite');
-  tx.objectStore(CANCIONES).put(cancion);
+  const almacen = tx.objectStore(CANCIONES);
+  let cambio = false;
+  if (desdeNube) {
+    almacen.put(cancion);
+  } else {
+    // Solo se marca si cambió algo que se comparte (no, por ejemplo, "ya es archivo").
+    almacen.get(cancion.id).onsuccess = (evento) => {
+      const antes = evento.target.result;
+      cambio = firmaDatos(antes) !== firmaDatos(cancion);
+      almacen.put(cambio ? { ...cancion, cambiada: Date.now() } : { ...cancion, cambiada: antes?.cambiada ?? cancion.cambiada });
+    };
+  }
   await transaccionTerminada(tx);
+  if (cambio) avisar('cancion', cancion.id);
 }
 
 /** Devuelve todas las canciones (sin el audio), en el orden en que se importaron. */
@@ -100,13 +133,18 @@ export async function guardarOrden(ids) {
   const db = await abrirDB();
   const tx = db.transaction(CANCIONES, 'readwrite');
   const almacen = tx.objectStore(CANCIONES);
+  const cambiadas = [];
   ids.forEach((id, i) => {
     almacen.get(id).onsuccess = (evento) => {
       const cancion = evento.target.result;
-      if (cancion) almacen.put({ ...cancion, orden: i });
+      if (cancion && cancion.orden !== i) {
+        almacen.put({ ...cancion, orden: i, cambiada: Date.now() });
+        cambiadas.push(id);
+      }
     };
   });
   await transaccionTerminada(tx);
+  cambiadas.forEach((id) => avisar('cancion', id));
 }
 
 /** Devuelve el audio de una canción como Blob, listo para el <audio>. */
@@ -136,7 +174,7 @@ export async function tieneAudio(id) {
 }
 
 /** Borra una canción, su audio, y la saca de todas las listas. */
-export async function borrarCancion(id) {
+export async function borrarCancion(id, { desdeNube = false } = {}) {
   const db = await abrirDB();
   const tx = db.transaction([CANCIONES, AUDIOS, LISTAS], 'readwrite');
   tx.objectStore(CANCIONES).delete(id);
@@ -145,11 +183,14 @@ export async function borrarCancion(id) {
   listas.getAll().onsuccess = (evento) => {
     for (const lista of evento.target.result) {
       if (lista.canciones.includes(id)) {
-        listas.put({ ...lista, canciones: lista.canciones.filter((c) => c !== id) });
+        const sinElla = { ...lista, canciones: lista.canciones.filter((c) => c !== id) };
+        listas.put(desdeNube ? sinElla : { ...sinElla, cambiada: Date.now() });
+        if (!desdeNube) setTimeout(() => avisar('lista', lista.id));
       }
     }
   };
   await transaccionTerminada(tx);
+  if (!desdeNube) avisar('cancion', id, true);
 }
 
 /* ---------- Listas (playlists) ---------- */
@@ -162,18 +203,30 @@ export async function listarListas() {
 }
 
 /** Crea o actualiza una lista completa. */
-export async function guardarLista(lista) {
+export async function guardarLista(lista, { desdeNube = false } = {}) {
   const db = await abrirDB();
   const tx = db.transaction(LISTAS, 'readwrite');
-  tx.objectStore(LISTAS).put(lista);
+  const almacen = tx.objectStore(LISTAS);
+  let cambio = false;
+  if (desdeNube) {
+    almacen.put(lista);
+  } else {
+    almacen.get(lista.id).onsuccess = (evento) => {
+      const antes = evento.target.result;
+      cambio = firmaDatos(antes) !== firmaDatos(lista);
+      almacen.put(cambio ? { ...lista, cambiada: Date.now() } : { ...lista, cambiada: antes?.cambiada ?? lista.cambiada });
+    };
+  }
   await transaccionTerminada(tx);
+  if (cambio) avisar('lista', lista.id);
 }
 
-export async function borrarLista(id) {
+export async function borrarLista(id, { desdeNube = false } = {}) {
   const db = await abrirDB();
   const tx = db.transaction(LISTAS, 'readwrite');
   tx.objectStore(LISTAS).delete(id);
   await transaccionTerminada(tx);
+  if (!desdeNube) avisar('lista', id, true);
 }
 
 /**

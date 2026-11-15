@@ -231,7 +231,7 @@ button { font: inherit; color: inherit; }
   bottom: 0;
   z-index: 5;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   min-height: var(--alto-navegacion);
   padding-bottom: env(safe-area-inset-bottom);
   /* Se desvanece hacia arriba sobre la lista */
@@ -921,3 +921,124 @@ button { font: inherit; color: inherit; }
 @media (max-width: 360px) {
   #anterior { display: none; }
 }
+
+/* =========================================================
+   CUENTA: avatar, perfil, explorar, "escuchando en…"
+   ========================================================= */
+.boton-avatar {
+  width: 34px;
+  height: 34px;
+  margin-right: var(--espacio-xs);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--color-superficie-activa);
+  color: var(--color-texto);
+  cursor: pointer;
+}
+.boton-avatar .icono { width: 20px; height: 20px; }
+
+/* Foto de perfil o, si no hay, la inicial sobre un color propio de cada usuario */
+.avatar {
+  display: grid;
+  place-items: center;
+  width: var(--tamano-avatar, 34px);
+  height: var(--tamano-avatar, 34px);
+  flex: none;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--color-avatar, #3a3a3a);
+  color: #fff;
+  font-weight: var(--peso-fuerte);
+  font-size: calc(var(--tamano-avatar, 34px) * 0.45);
+  line-height: 1;
+  text-transform: uppercase;
+  user-select: none;
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.perfil-hoja {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--espacio-s);
+  padding: var(--espacio-s) 0 var(--espacio-m);
+  text-align: center;
+}
+.perfil-hoja__usuario { margin: 0; font-size: var(--texto-l); font-weight: var(--peso-fuerte); }
+.perfil-hoja__dato { margin: 0; color: var(--color-texto-suave); font-size: var(--texto-s); }
+
+.formulario-perfil { display: flex; flex-direction: column; gap: var(--espacio-m); padding-bottom: var(--espacio-m); }
+.formulario-perfil__foto {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--espacio-s);
+  border: 0;
+  background: transparent;
+  color: var(--color-acento);
+  font: inherit;
+  font-size: var(--texto-s);
+  cursor: pointer;
+}
+.formulario-perfil__nota { margin: 0; font-size: var(--texto-xs); color: var(--color-texto-suave); }
+.formulario-perfil__nota--error { color: var(--color-peligro); }
+.formulario-perfil__nota--bien { color: var(--color-acento); }
+
+.boton-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  margin-bottom: var(--espacio-s);
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: #1f1f1f;
+  font: inherit;
+  font-weight: var(--peso-fuerte);
+  cursor: pointer;
+}
+.boton-google:disabled { opacity: 0.6; }
+
+.escuchando {
+  display: flex;
+  align-items: center;
+  gap: var(--espacio-s);
+  width: calc(100% - 2 * var(--espacio-m));
+  margin: 0 var(--espacio-m) var(--espacio-s);
+  padding: 10px var(--espacio-m);
+  border: 1px solid color-mix(in srgb, var(--color-acento) 40%, transparent);
+  border-radius: var(--radio-m);
+  background: color-mix(in srgb, var(--color-acento) 10%, var(--color-fondo));
+  color: var(--color-texto);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.escuchando[hidden] { display: none; }
+.escuchando__texto { display: flex; flex-direction: column; min-width: 0; }
+.escuchando__donde { color: var(--color-acento); font-size: var(--texto-xs); font-weight: var(--peso-fuerte); }
+.escuchando__que { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--texto-s); }
+.escuchando__ondas { display: flex; align-items: flex-end; gap: 2px; height: 16px; }
+.escuchando__ondas i { width: 3px; background: var(--color-acento); border-radius: 2px; animation: onda 0.9s ease-in-out infinite; }
+.escuchando__ondas i:nth-child(2) { animation-delay: 0.2s; }
+.escuchando__ondas i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes onda { 0%, 100% { height: 4px; } 50% { height: 16px; } }
+@media (prefers-reduced-motion: reduce) { .escuchando__ondas i { animation: none; height: 10px; } }
+
+.perfil-explorar {
+  display: flex;
+  align-items: center;
+  gap: var(--espacio-m);
+  margin: 0 var(--espacio-m) var(--espacio-m);
+}
+.perfil-explorar__nombre { margin: 0; font-size: var(--texto-l); font-weight: var(--peso-fuerte); }
+.perfil-explorar__dato { margin: 0; color: var(--color-texto-suave); font-size: var(--texto-s); }
+.perfil-explorar .boton-icono { margin-left: auto; }
+.cancion__acciones { display: flex; align-items: center; flex: none; }

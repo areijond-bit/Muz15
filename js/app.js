@@ -18,6 +18,8 @@ import { abrirHoja, confirmar } from './hoja.js';
 import { icono, ponerIconos } from './iconos.js';
 import { esApk, AppNativa } from './nativo.js';
 import { crearEcualizador, BANDAS, PERFILES, MAXIMO_DB, OPCIONES_TOPE_DB } from './ecualizador.js';
+import { puedeEntrar, entrar, salir, alCambiarSesion } from './cuenta.js';
+import * as nube from './nube.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -81,6 +83,21 @@ const el = {
   buscarListas: $('buscar-listas'),
   estadoListasPC: $('estado-listas-pc'),
   listasServidor: $('listas-servidor'),
+  perfil: $('perfil'),
+  escuchandoEn: $('escuchando-en'),
+  escuchandoDonde: $('escuchando-donde'),
+  escuchandoQue: $('escuchando-que'),
+  vistaExplorar: $('vista-explorar'),
+  recargarExplorar: $('recargar-explorar'),
+  explorarSinCuenta: $('explorar-sin-cuenta'),
+  explorarMotivo: $('explorar-motivo'),
+  explorarEntrar: $('explorar-entrar'),
+  explorarContenido: $('explorar-contenido'),
+  explorarPerfil: $('explorar-perfil'),
+  buscarExplorar: $('buscar-explorar'),
+  estadoExplorar: $('estado-explorar'),
+  listaExplorar: $('lista-explorar'),
+  masExplorar: $('mas-explorar'),
 };
 
 // Los íconos dibujados de la pantalla (los <span data-icono="…"> del HTML).
@@ -121,6 +138,14 @@ const PORTADA_POR_DEFECTO = new URL('icons/portada.png', location.href).href;
  * Del teléfono → archivo; de Mi PC sin descargar → tu servidor.
  */
 async function fuenteNativa(cancion) {
+  if (cancion.origen === 'nube') {
+    const local = localDe(cancion);
+    if (!local) {
+      const portada = cancion.portadaUrl ?? PORTADA_POR_DEFECTO;
+      return { url: cancion.archivo, portada, portadaPantalla: portada };
+    }
+    cancion = local;
+  }
   if (cancion.origen === 'servidor') {
     const local = localDe(cancion);
     if (!local) {
@@ -177,8 +202,8 @@ function asegurarArchivos() {
 }
 
 /** Borra la canción de la biblioteca y, en la APK nueva, también sus archivos. */
-async function borrarCancionCompleta(cancion) {
-  await borrarCancion(cancion.id);
+async function borrarCancionCompleta(cancion, { desdeNube = false } = {}) {
+  await borrarCancion(cancion.id, { desdeNube });
   if (hayReproductorNativo) {
     await borrarArchivo(rutaAudio(cancion));
     await borrarArchivo(rutaPortada(cancion));
@@ -190,6 +215,11 @@ async function borrarCancionCompleta(cancion) {
  * Si es del servidor pero ya está descargada, suena desde el teléfono (sin internet).
  */
 async function obtenerFuente(cancion) {
+  if (cancion.origen === 'nube') {
+    const local = localDe(cancion);
+    if (!local) return { audio: cancion.archivo, portada: cancion.portadaUrl ?? PORTADA_POR_DEFECTO };
+    cancion = local;
+  }
   if (cancion.origen === 'servidor') {
     const local = localDe(cancion);
     if (!local) return { audio: servidor.urlAudio(cancion), portada: servidor.urlPortada(cancion) };
@@ -430,6 +460,9 @@ async function ofrecerRecuperacion() {
 
 /** La copia guardada en el teléfono de una canción del servidor, si existe. */
 function localDe(cancionServidor) {
+  if (cancionServidor.origen === 'nube') {
+    return cancionesLocales.find((c) => c.idNube === cancionServidor.idNube || c.id === cancionServidor.id) ?? null;
+  }
   return cancionesLocales.find((c) => c.idServidor === cancionServidor.idServidor) ?? null;
 }
 
@@ -459,21 +492,53 @@ function botonMenu(cancion, alTocar) {
 /* ---------- Menú de una canción ---------- */
 
 function menuCancion(cancion) {
+  // Como en YouTube: solo quien la subió le cambia título, artista y portada.
+  const yo = nube.perfil()?.id;
+  const esDeOtro = Boolean(cancion.idNube && yo && cancion.dueno && cancion.dueno !== yo);
+  const esMia = Boolean(cancion.idNube && yo && cancion.dueno === yo);
+  const enCuenta = Boolean(cancion.idNube && nube.conectado());
   abrirHoja({
     titulo: cancion.titulo,
-    subtitulo: cancion.artista,
+    subtitulo: [cancion.artista, cancion.duenoUsuario && `subida por @${cancion.duenoUsuario}`].filter(Boolean).join(' · '),
     acciones: [
       { texto: '+ Agregar a playlist o álbum', alElegir: () => elegirLista(cancion) },
-      { icono: 'editar', texto: 'Editar título, artista y portada', alElegir: () => editarCancion(cancion) },
+      esDeOtro
+        ? { icono: 'candado', texto: `Solo @${cancion.duenoUsuario ?? 'su dueño'} puede editarla`, alElegir: () => {} }
+        : { icono: 'editar', texto: esMia ? 'Editar título, artista y portada (para todos)' : 'Editar título, artista y portada', alElegir: () => editarCancion(cancion) },
+      ...(cancion.dueno && cancion.duenoUsuario
+        ? [{ icono: 'persona', texto: `Ver perfil de @${cancion.duenoUsuario}`, alElegir: () => verPerfilEnExplorar({ id: cancion.dueno, usuario: cancion.duenoUsuario }) }]
+        : []),
       cancion.siguienteFija && porId(cancion.siguienteFija)
         ? { icono: 'enlace', texto: `Quitar vínculo con "${porId(cancion.siguienteFija).titulo}"`, alElegir: () => vincular(cancion, null) }
         : { icono: 'enlace', texto: 'Vincular: que siempre siga otra canción', alElegir: () => elegirVinculo(cancion) },
-      {
-        texto: 'Borrar del teléfono',
+      ...(esMia ? [{
+        texto: 'Borrar de Muz15 para todos',
         peligro: true,
         alElegir: () => confirmar({
-          titulo: `¿Borrar "${cancion.titulo}"?`,
-          subtitulo: 'Se borra de este teléfono y de tus listas. Si está en tu PC, la puedes volver a descargar.',
+          titulo: `¿Borrar "${cancion.titulo}" de Muz15?`,
+          subtitulo: 'Desaparece para todos, también de las bibliotecas de tus amigos.',
+          textoBoton: 'Borrar para todos',
+          alConfirmar: async () => {
+            try {
+              await nube.borrarParaTodos(cancion.idNube);
+            } catch (error) {
+              return mostrarAviso(`No se pudo borrar: ${error.message}`, 4000);
+            }
+            await borrarCancionCompleta(cancion, { desdeNube: true });
+            reproductor.quitar(cancion.id);
+            await recargarLista();
+            mostrarAviso(`"${cancion.titulo}" se borró de Muz15.`, 3000);
+          },
+        }),
+      }] : []),
+      {
+        texto: enCuenta ? 'Quitar de mi biblioteca' : 'Borrar del teléfono',
+        peligro: true,
+        alElegir: () => confirmar({
+          titulo: enCuenta ? `¿Quitar "${cancion.titulo}" de tu biblioteca?` : `¿Borrar "${cancion.titulo}"?`,
+          subtitulo: enCuenta
+            ? 'Se quita de todos tus dispositivos y de tus listas. La puedes volver a guardar desde Explorar.'
+            : 'Se borra de este teléfono y de tus listas. Si está en tu PC, la puedes volver a descargar.',
           textoBoton: 'Borrar',
           alConfirmar: async () => {
             await borrarCancionCompleta(cancion);
@@ -1535,6 +1600,7 @@ for (const pestana of el.pestanas) {
   pestana.addEventListener('click', () => mostrarVista(pestana.dataset.vista));
 }
 
+let vistaActual = 'telefono';
 function mostrarVista(vista) {
   for (const pestana of el.pestanas) {
     pestana.classList.toggle('pestana--activa', pestana.dataset.vista === vista);
@@ -1542,7 +1608,10 @@ function mostrarVista(vista) {
   el.vistaTelefono.hidden = vista !== 'telefono';
   el.vistaListas.hidden = vista !== 'listas' && vista !== 'playlists';
   el.vistaServidor.hidden = vista !== 'servidor';
+  el.vistaExplorar.hidden = vista !== 'explorar';
+  vistaActual = vista;
   if (vista === 'servidor') abrirServidor();
+  if (vista === 'explorar') abrirExplorar();
   if (vista === 'listas' || vista === 'playlists') {
     const tipo = vista === 'playlists' ? 'playlist' : 'album';
     if (tipo !== tipoVista) listaAbierta = null; // cambiaste de pestaña: vuelve al índice
@@ -1767,6 +1836,7 @@ async function descargarDelServidor(cancion, { silencioso = false } = {}) {
 
 function pintarReproductor({ cancion, sonando, aleatorio, urlPortada }) {
   if (cancion) guardarUltima(!sonando); // cambió de canción o se pausó: guardar ya
+  nube.anunciar({ cancion, sonando, posicion: segundoActual }).catch(() => {});
   for (const boton of [el.aleatorio, el.aleatorioLista]) {
     boton.setAttribute('aria-pressed', String(aleatorio));
     boton.setAttribute('aria-label', `Modo aleatorio: ${aleatorio ? 'encendido' : 'apagado'}`);
@@ -1808,6 +1878,9 @@ let arrastrando = false;
 function pintarProgreso({ actual, duracion }) {
   segundoActual = actual;
   guardarUltima();
+  // Cada ~30 s mientras suena (nube.js no manda más seguido).
+  const { cancion, sonando } = reproductor.estado();
+  if (sonando) nube.anunciar({ cancion, sonando, posicion: actual }).catch(() => {});
   if (arrastrando) return;
   el.progreso.max = duracion;
   el.progreso.value = actual;
@@ -2720,6 +2793,519 @@ function abrirEcualizador() {
   });
 }
 
+/* ---------- Tu cuenta (como en YouTube) ---------- */
+// Entras con Google y creas tu perfil (usuario + foto). Tu música, tus listas y lo
+// que escuchas quedan en la nube de Muz15 y se ven igual en el cel y en la PC, aunque
+// tu PC esté apagada. Y en Explorar ves lo que suben tus amigos. Ver js/nube.js.
+
+let usuarioNube = null; // la cuenta de Google con la que entraste (aunque falte el perfil)
+
+const COLORES_AVATAR = ['#e5484d', '#d6409f', '#8e4ec6', '#3e63dd', '#0090ff', '#12a594', '#30a46c', '#f76b15', '#a18072', '#6e56cf'];
+const inicial = (texto) => [...(texto ?? '').trim()][0]?.toUpperCase() ?? '?';
+
+/** Tu foto o, si no tienes, la primera letra o número de tu usuario sobre un color fijo. */
+function crearAvatar(perfil, tamano = 34) {
+  const caja = document.createElement('span');
+  caja.className = 'avatar';
+  caja.style.setProperty('--tamano-avatar', `${tamano}px`);
+  const nombre = perfil?.usuario || perfil?.nombre || '?';
+  let suma = 0;
+  for (const letra of nombre) suma = (suma * 31 + letra.codePointAt(0)) % 9973;
+  caja.style.setProperty('--color-avatar', COLORES_AVATAR[suma % COLORES_AVATAR.length]);
+  if (perfil?.foto) {
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = perfil.foto;
+    img.onerror = () => { img.remove(); caja.textContent = inicial(nombre); };
+    caja.append(img);
+  } else {
+    caja.textContent = inicial(nombre);
+  }
+  return caja;
+}
+
+function pintarBotonPerfil() {
+  const perfil = nube.perfil();
+  if (perfil) {
+    el.perfil.replaceChildren(crearAvatar(perfil, 34));
+    el.perfil.setAttribute('aria-label', `Tu cuenta: @${perfil.usuario}`);
+  } else {
+    el.perfil.innerHTML = icono('persona', 20);
+    el.perfil.setAttribute('aria-label', 'Entrar a tu cuenta');
+  }
+}
+
+let temporizadorRecarga;
+function programarRecarga() {
+  clearTimeout(temporizadorRecarga);
+  temporizadorRecarga = setTimeout(() => recargarLista(), 300);
+}
+
+function iniciarCuenta() {
+  pintarBotonPerfil();
+  nube.iniciar({
+    audioDe: audioParaSubir,
+    borrarLocal: async (cancion) => {
+      await borrarCancionCompleta(cancion, { desdeNube: true });
+      reproductor.quitar(cancion.id);
+    },
+    alCambiarBiblioteca: programarRecarga,
+    alEscuchando: pintarEscuchando,
+    alAudioNuevo: () => { if (vistaActual === 'explorar' && !el.buscarExplorar.value) abrirExplorar(); },
+    avisar: mostrarAviso,
+  });
+  let primeraVez = true;
+  alCambiarSesion(async (usuario) => {
+    usuarioNube = usuario;
+    let perfil = null;
+    try {
+      perfil = await nube.conectar(usuario);
+    } catch (error) {
+      mostrarAviso(`No se pudo conectar con tu cuenta: ${error.message}`, 5000);
+    }
+    pintarBotonPerfil();
+    if (!usuario) pintarEscuchando(null);
+    if (vistaActual === 'explorar') abrirExplorar();
+    if (usuario && !perfil) pedirPerfil(); // primera vez: crea tu perfil
+    else if (!usuario && primeraVez) ofrecerCuentaUnaVez();
+    primeraVez = false;
+  });
+}
+
+const CLAVE_BIENVENIDA = 'muz15-bienvenida-cuenta';
+function ofrecerCuentaUnaVez() {
+  if (!puedeEntrar().si) return;
+  try {
+    if (localStorage.getItem(CLAVE_BIENVENIDA)) return;
+    localStorage.setItem(CLAVE_BIENVENIDA, '1');
+  } catch { /* nada */ }
+  ofrecerCuenta();
+}
+
+// La "G" de Google para el botón de entrar.
+const LOGO_GOOGLE = '<svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>';
+
+function botonGoogle(alTerminar) {
+  const boton = document.createElement('button');
+  boton.className = 'boton-google';
+  boton.innerHTML = `${LOGO_GOOGLE}<span>Entrar con Google</span>`;
+  boton.addEventListener('click', async () => {
+    boton.disabled = true;
+    await entrarConGoogle();
+    boton.disabled = false;
+    alTerminar?.();
+  });
+  return boton;
+}
+
+async function entrarConGoogle() {
+  const { si, motivo } = puedeEntrar();
+  if (!si) return mostrarAviso(motivo, 6000);
+  try {
+    await entrar(); // en el navegador la página se va a Google y regresa sola
+  } catch (error) {
+    if (error.code !== 'CANCELADO') mostrarAviso(`No se pudo entrar: ${error.message}`, 6000);
+  }
+}
+
+function ofrecerCuenta() {
+  const { si, motivo } = puedeEntrar();
+  let cerrar = () => {};
+  cerrar = abrirHoja({
+    titulo: 'Tu cuenta de Muz15',
+    subtitulo: si
+      ? 'Entra con Google: tu música, tus listas y tu perfil quedan iguales en el cel y en la PC (aunque esté apagada), y ves lo que suben tus amigos.'
+      : motivo,
+    contenido: si ? botonGoogle(() => cerrar()) : undefined,
+  });
+}
+
+/** Crear (la primera vez) o editar tu perfil: usuario, nombre y foto. */
+function pedirPerfil() {
+  const actual = nube.perfil();
+  const datosGoogle = usuarioNube?.user_metadata ?? {};
+  let foto; // undefined = no cambiar · null = quitar · Blob = nueva
+
+  const formulario = document.createElement('form');
+  formulario.className = 'formulario-perfil';
+  formulario.innerHTML = `
+    <button type="button" class="formulario-perfil__foto"><span class="formulario-perfil__vista"></span><span class="formulario-perfil__texto"></span></button>
+    <input type="file" accept="image/*" hidden>
+    <label class="campo">
+      <span class="campo__etiqueta">Nombre de usuario</span>
+      <input class="campo__entrada" name="usuario" required autocapitalize="none" autocomplete="username" maxlength="20" placeholder="ej. alex15">
+      <span class="formulario-perfil__nota">Letras, números, punto o guion bajo. Así te ven tus amigos: @usuario</span>
+    </label>
+    <label class="campo">
+      <span class="campo__etiqueta">Nombre (opcional)</span>
+      <input class="campo__entrada" name="nombre" maxlength="50" autocomplete="name">
+    </label>
+    <button class="boton boton--primario boton--ancho" type="submit"></button>`;
+  const [botonFoto, campoFoto] = [formulario.querySelector('.formulario-perfil__foto'), formulario.querySelector('input[type="file"]')];
+  const campoUsuario = formulario.elements.usuario;
+  const campoNombre = formulario.elements.nombre;
+  const nota = formulario.querySelector('.formulario-perfil__nota');
+  const enviar = formulario.querySelector('button[type="submit"]');
+  enviar.textContent = actual ? 'Guardar' : 'Crear mi perfil';
+
+  const sugerido = nube.limpiarUsuario(datosGoogle.full_name ?? usuarioNube?.email?.split('@')[0] ?? '').usuario;
+  campoUsuario.value = actual?.usuario ?? sugerido;
+  campoNombre.value = actual?.nombre ?? datosGoogle.full_name ?? '';
+  let urlFotoNueva = null;
+
+  const pintarFoto = () => {
+    const vista = formulario.querySelector('.formulario-perfil__vista');
+    const fotoActual = foto === undefined ? actual?.foto : (foto ? urlFotoNueva : null);
+    vista.replaceChildren(crearAvatar({ usuario: campoUsuario.value || '?', foto: fotoActual }, 88));
+    formulario.querySelector('.formulario-perfil__texto').textContent = fotoActual ? 'Cambiar foto' : 'Poner foto (opcional)';
+  };
+  pintarFoto();
+
+  botonFoto.addEventListener('click', () => {
+    const conFoto = foto === undefined ? actual?.foto : foto;
+    if (!conFoto) return campoFoto.click();
+    abrirHoja({
+      titulo: 'Foto de perfil',
+      acciones: [
+        { icono: 'camara', texto: 'Elegir otra foto', alElegir: () => campoFoto.click() },
+        { icono: 'borrar', texto: 'Quitar foto (usar mi inicial)', alElegir: () => { foto = null; pintarFoto(); } },
+      ],
+    });
+  });
+  campoFoto.addEventListener('change', async () => {
+    const archivo = campoFoto.files[0];
+    campoFoto.value = '';
+    if (!archivo) return;
+    try {
+      const cuadrada = await portadaDeImagen(archivo); // recorte cuadrado, máx. 600 px
+      if (!cuadrada) throw new Error('imagen vacía');
+      foto = new Blob([cuadrada.datos], { type: cuadrada.tipo });
+      if (urlFotoNueva) URL.revokeObjectURL(urlFotoNueva);
+      urlFotoNueva = URL.createObjectURL(foto);
+      pintarFoto();
+    } catch {
+      mostrarAviso('No se pudo usar esa imagen.', 3000);
+    }
+  });
+
+  // Revisa que el usuario esté libre mientras escribes.
+  let revision = 0;
+  let disponible = true;
+  const ponerNota = (texto, tipo = '') => {
+    nota.textContent = texto;
+    nota.className = `formulario-perfil__nota${tipo ? ` formulario-perfil__nota--${tipo}` : ''}`;
+  };
+  campoUsuario.addEventListener('input', () => {
+    const { usuario, error } = nube.limpiarUsuario(campoUsuario.value);
+    if (usuario !== campoUsuario.value) campoUsuario.value = usuario;
+    pintarFoto(); // la inicial cambia con el usuario
+    disponible = false;
+    if (error) return ponerNota(error, 'error');
+    const esta = ++revision;
+    ponerNota('Revisando…');
+    setTimeout(async () => {
+      if (esta !== revision) return;
+      try {
+        disponible = await nube.usuarioLibre(usuario);
+        if (esta === revision) ponerNota(disponible ? `@${usuario} está libre` : `@${usuario} ya lo tiene alguien más`, disponible ? 'bien' : 'error');
+      } catch {
+        disponible = true; // sin internet: lo dirá al guardar
+        ponerNota('');
+      }
+    }, 400);
+  });
+
+  let cerrar = () => {};
+  formulario.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    const { usuario, error } = nube.limpiarUsuario(campoUsuario.value);
+    if (error) return ponerNota(error, 'error');
+    if (!disponible) return ponerNota(`@${usuario} ya lo tiene alguien más`, 'error');
+    enviar.disabled = true;
+    enviar.textContent = 'Guardando…';
+    try {
+      const perfil = await nube.guardarPerfil({ usuario, nombre: campoNombre.value.trim(), foto });
+      cerrar();
+      pintarBotonPerfil();
+      mostrarAviso(actual ? 'Perfil guardado.' : `¡Listo, @${perfil.usuario}! Tu música se está subiendo a tu cuenta.`, 4000);
+      if (vistaActual === 'explorar') abrirExplorar();
+    } catch (error) {
+      ponerNota(error.message, 'error');
+      enviar.disabled = false;
+      enviar.textContent = actual ? 'Guardar' : 'Crear mi perfil';
+    }
+  });
+
+  cerrar = abrirHoja({
+    titulo: actual ? 'Editar perfil' : 'Crea tu perfil',
+    subtitulo: actual ? undefined : 'Así te van a ver tus amigos en Muz15.',
+    contenido: formulario,
+  });
+}
+
+/** Tocar tu foto: tu perfil y lo de tu cuenta. */
+function abrirMiCuenta() {
+  if (!usuarioNube) return ofrecerCuenta();
+  const perfil = nube.perfil();
+  if (!perfil) return pedirPerfil();
+  const tarjeta = document.createElement('div');
+  tarjeta.className = 'perfil-hoja';
+  const usuario = document.createElement('p');
+  usuario.className = 'perfil-hoja__usuario';
+  usuario.textContent = `@${perfil.usuario}`;
+  const datos = document.createElement('p');
+  datos.className = 'perfil-hoja__dato';
+  datos.textContent = [perfil.nombre, usuarioNube.email].filter(Boolean).join(' · ');
+  const aqui = document.createElement('p');
+  aqui.className = 'perfil-hoja__dato';
+  aqui.textContent = `Este dispositivo: ${nube.dispositivo().nombre}`;
+  tarjeta.append(crearAvatar(perfil, 88), usuario, datos, aqui);
+  abrirHoja({
+    titulo: 'Tu cuenta',
+    contenido: tarjeta,
+    acciones: [
+      { icono: 'editar', texto: 'Editar perfil', alElegir: pedirPerfil },
+      { icono: 'globo', texto: 'Ver lo que he subido', alElegir: () => verPerfilEnExplorar(perfil) },
+      { icono: 'telefono', texto: 'Nombre de este dispositivo', alElegir: renombrarEsteDispositivo },
+      { icono: 'actualizar', texto: 'Sincronizar ahora', alElegir: sincronizarAhora },
+      {
+        icono: 'salir',
+        texto: 'Cerrar sesión',
+        alElegir: () => confirmar({
+          titulo: '¿Cerrar sesión en este dispositivo?',
+          subtitulo: 'Tus canciones descargadas se quedan aquí. Tu cuenta y tus otros dispositivos siguen igual.',
+          textoBoton: 'Cerrar sesión',
+          alConfirmar: async () => { await salir(); mostrarAviso('Cerraste sesión.', 3000); },
+        }),
+      },
+    ],
+  });
+}
+el.perfil.addEventListener('click', abrirMiCuenta);
+
+function renombrarEsteDispositivo() {
+  abrirHoja({
+    titulo: 'Nombre de este dispositivo',
+    subtitulo: 'Así aparece en "Escuchando en…" en tus otros dispositivos.',
+    entrada: {
+      placeholder: 'ej. Mi cel, PC del cuarto',
+      valor: nube.dispositivo().nombre,
+      textoBoton: 'Guardar',
+      alAceptar: (nombre) => { nube.renombrarDispositivo(nombre); mostrarAviso('Listo.', 2000); },
+    },
+  });
+}
+
+async function sincronizarAhora() {
+  mostrarAviso('Sincronizando…');
+  try {
+    await nube.sincronizar();
+    await recargarLista();
+    mostrarAviso('Todo al día.', 2500);
+  } catch (error) {
+    mostrarAviso(`No se pudo sincronizar: ${error.message}`, 5000);
+  }
+}
+
+/* ---------- "Escuchando en…" (tus otros dispositivos) ---------- */
+
+let escuchandoActual = null;
+let temporizadorEscuchando;
+const VIGENCIA_ESCUCHANDO_MS = 90000; // si un dispositivo deja de avisar, se quita solo
+
+function pintarEscuchando(fila) {
+  escuchandoActual = fila;
+  clearTimeout(temporizadorEscuchando);
+  const vigente = Boolean(fila && fila.sonando && fila.dispositivo_id !== nube.dispositivo().id
+    && Date.now() - Date.parse(fila.cuando) < VIGENCIA_ESCUCHANDO_MS);
+  el.escuchandoEn.hidden = !vigente;
+  if (!vigente) return;
+  el.escuchandoDonde.textContent = `Escuchando en ${fila.dispositivo}`;
+  el.escuchandoQue.textContent = [fila.titulo, fila.artista].filter(Boolean).join(' · ');
+  temporizadorEscuchando = setTimeout(() => pintarEscuchando(escuchandoActual), 15000);
+}
+
+el.escuchandoEn.addEventListener('click', () => {
+  const fila = escuchandoActual;
+  if (!fila) return;
+  const local = cancionesLocales.findIndex((c) => c.idNube === fila.audio || c.id === fila.audio);
+  abrirHoja({
+    titulo: fila.titulo || 'Algo está sonando',
+    subtitulo: `Suena en ${fila.dispositivo}${fila.artista ? ` · ${fila.artista}` : ''}`,
+    acciones: local === -1 ? [] : [{
+      icono: 'play',
+      texto: 'Escuchar aquí desde donde va',
+      alElegir: async () => {
+        // Va un poco más adelante que cuando avisó.
+        const segundo = (fila.posicion || 0) + (Date.now() - Date.parse(fila.cuando)) / 1000;
+        listaQueSuena = null;
+        await reproductor.reproducirLista(cancionesLocales, local);
+        setTimeout(() => reproductor.irA(segundo), 600);
+      },
+    }],
+  });
+});
+
+/* ---------- Explorar: lo que suben todos ---------- */
+
+let paginaExplorar = 0;
+let resultadosExplorar = [];
+let duenoExplorar = null; // perfil cuando estás viendo lo de una sola persona
+let pedidoExplorar = 0;
+
+async function abrirExplorar({ masResultados = false } = {}) {
+  const conCuenta = nube.conectado();
+  el.explorarSinCuenta.hidden = conCuenta;
+  el.explorarContenido.hidden = !conCuenta;
+  if (!conCuenta) {
+    const { si, motivo } = puedeEntrar();
+    el.explorarMotivo.textContent = !si ? motivo
+      : usuarioNube ? 'Te falta crear tu perfil.'
+        : 'Con tu cuenta ves los audios de tus amigos y tienes tu música en todos tus dispositivos.';
+    el.explorarEntrar.hidden = !si;
+    el.explorarEntrar.textContent = usuarioNube ? 'Crear mi perfil' : 'Entrar con Google';
+    return;
+  }
+  paginaExplorar = masResultados ? paginaExplorar + 1 : 0;
+  const este = ++pedidoExplorar;
+  if (!masResultados) el.estadoExplorar.textContent = 'Cargando…';
+  try {
+    const nuevos = await nube.explorar({ busqueda: el.buscarExplorar.value, dueno: duenoExplorar?.id, pagina: paginaExplorar });
+    if (este !== pedidoExplorar) return; // llegó una búsqueda más nueva
+    resultadosExplorar = masResultados ? [...resultadosExplorar, ...nuevos] : nuevos;
+    el.masExplorar.hidden = nuevos.length < 50;
+  } catch (error) {
+    el.estadoExplorar.textContent = `No se pudo cargar: ${error.message}`;
+    return;
+  }
+  pintarExplorar();
+}
+
+const comoCancion = (audio) => ({
+  id: audio.id,
+  idNube: audio.id,
+  origen: 'nube',
+  titulo: audio.titulo,
+  artista: audio.artista,
+  album: audio.album,
+  archivo: audio.archivo,
+  portadaUrl: audio.portada,
+  dueno: audio.dueno,
+  duenoUsuario: audio.perfil?.usuario ?? null,
+  perfilDueno: audio.perfil ?? null,
+});
+
+function pintarExplorar() {
+  const canciones = resultadosExplorar.map(comoCancion);
+  el.explorarPerfil.hidden = !duenoExplorar;
+  if (duenoExplorar) {
+    const nombre = document.createElement('div');
+    nombre.innerHTML = '<p class="perfil-explorar__nombre"></p><p class="perfil-explorar__dato"></p>';
+    nombre.children[0].textContent = `@${duenoExplorar.usuario}`;
+    nombre.children[1].textContent = duenoExplorar.nombre || 'Audios que ha subido';
+    const cerrarPerfil = document.createElement('button');
+    cerrarPerfil.className = 'boton-icono';
+    cerrarPerfil.setAttribute('aria-label', 'Ver lo de todos');
+    cerrarPerfil.innerHTML = icono('cerrar');
+    cerrarPerfil.addEventListener('click', () => { duenoExplorar = null; abrirExplorar(); });
+    el.explorarPerfil.replaceChildren(crearAvatar(duenoExplorar, 56), nombre, cerrarPerfil);
+  }
+  el.listaExplorar.replaceChildren(...canciones.map((cancion, i) => {
+    const acciones = document.createElement('div');
+    acciones.className = 'cancion__acciones';
+    acciones.append(botonGuardarAudio(cancion), botonMenu(cancion, () => menuAudio(cancion)));
+    const vista = { ...cancion, artista: [cancion.artista, cancion.duenoUsuario && `@${cancion.duenoUsuario}`].filter(Boolean).join(' · ') };
+    return crearFila(vista, cancion.portadaUrl ?? 'icons/portada.png', acciones,
+      () => { listaQueSuena = null; reproductor.reproducirLista(canciones, i); });
+  }));
+  const quien = duenoExplorar ? `@${duenoExplorar.usuario} no ha subido nada todavía.` : 'Nadie ha subido nada todavía. Importa canciones con el botón de subir y se comparten solas.';
+  el.estadoExplorar.textContent = canciones.length
+    ? `${canciones.length}${el.masExplorar.hidden ? '' : '+'} ${canciones.length === 1 ? 'audio' : 'audios'}`
+    : (el.buscarExplorar.value ? 'Nada con esa búsqueda.' : quien);
+  marcarSonando(reproductor.estado().cancion);
+}
+
+/** Descargar (guardar en tu biblioteca) o la palomita si ya la tienes. */
+function botonGuardarAudio(cancion) {
+  const boton = document.createElement('button');
+  boton.className = 'cancion__accion';
+  if (localDe(cancion)) {
+    boton.innerHTML = icono('descargado');
+    boton.classList.add('cancion__accion--hecha');
+    boton.setAttribute('aria-label', 'Ya está en tu biblioteca');
+  } else {
+    boton.innerHTML = icono('descargar');
+    boton.setAttribute('aria-label', `Guardar ${cancion.titulo} en tu biblioteca`);
+  }
+  boton.addEventListener('click', async (evento) => {
+    evento.stopPropagation();
+    if (localDe(cancion)) return;
+    boton.textContent = '…';
+    boton.disabled = true;
+    await guardarAudio(cancion);
+  });
+  return boton;
+}
+
+async function guardarAudio(cancion) {
+  try {
+    await nube.guardarEnBiblioteca({ id: cancion.idNube });
+    mostrarAviso(`"${cancion.titulo}" se guarda en tu biblioteca (en todos tus dispositivos).`, 3000);
+  } catch (error) {
+    mostrarAviso(`No se pudo guardar: ${error.message}`, 4000);
+  }
+}
+
+function menuAudio(cancion) {
+  const mia = cancion.dueno === nube.perfil()?.id;
+  abrirHoja({
+    titulo: cancion.titulo,
+    subtitulo: [cancion.artista, cancion.duenoUsuario && `subida por @${cancion.duenoUsuario}`].filter(Boolean).join(' · '),
+    acciones: [
+      localDe(cancion)
+        ? { icono: 'descargado', texto: 'Ya está en tu biblioteca', alElegir: () => {} }
+        : { icono: 'descargar', texto: 'Guardar en mi biblioteca', alElegir: () => guardarAudio(cancion) },
+      ...(cancion.perfilDueno && !duenoExplorar
+        ? [{ icono: 'persona', texto: `Ver perfil de @${cancion.duenoUsuario}`, alElegir: () => verPerfilEnExplorar(cancion.perfilDueno) }]
+        : []),
+      ...(mia ? [{
+        texto: 'Borrar de Muz15 para todos',
+        peligro: true,
+        alElegir: () => confirmar({
+          titulo: `¿Borrar "${cancion.titulo}" de Muz15?`,
+          subtitulo: 'Desaparece para todos, también de las bibliotecas de tus amigos.',
+          textoBoton: 'Borrar para todos',
+          alConfirmar: async () => {
+            try {
+              await nube.borrarParaTodos(cancion.idNube);
+              mostrarAviso(`"${cancion.titulo}" se borró de Muz15.`, 3000);
+              abrirExplorar();
+            } catch (error) {
+              mostrarAviso(`No se pudo borrar: ${error.message}`, 4000);
+            }
+          },
+        }),
+      }] : []),
+    ],
+  });
+}
+
+function verPerfilEnExplorar(perfil) {
+  duenoExplorar = perfil;
+  el.buscarExplorar.value = '';
+  if (vistaActual === 'explorar') abrirExplorar();
+  else mostrarVista('explorar');
+}
+
+let temporizadorBusqueda;
+el.buscarExplorar.addEventListener('input', () => {
+  clearTimeout(temporizadorBusqueda);
+  temporizadorBusqueda = setTimeout(() => abrirExplorar(), 350);
+});
+el.recargarExplorar.addEventListener('click', () => abrirExplorar());
+el.masExplorar.addEventListener('click', () => abrirExplorar({ masResultados: true }));
+el.explorarEntrar.addEventListener('click', () => (usuarioNube ? pedirPerfil() : entrarConGoogle()));
+
 /* ---------- Avisos ---------- */
 
 let temporizadorAviso;
@@ -2760,6 +3346,8 @@ if ('serviceWorker' in navigator) {
 
 // Pide al sistema que nunca borre las canciones guardadas por falta de espacio.
 pedirAlmacenamientoPersistente();
+
+iniciarCuenta();
 
 recargarLista()
   .then(async () => {

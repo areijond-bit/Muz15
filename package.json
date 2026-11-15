@@ -5,7 +5,8 @@
   "description": "Mi música, sin internet. App Android (Capacitor) que carga la PWA de GitHub Pages.",
   "scripts": {
     "servidor": "node tools/servidor.mjs",
-    "android:sync": "cap sync android"
+    "android:sync": "cap sync android",
+    "vendor": "node tools/copiar-vendor.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.2",
@@ -13,6 +14,8 @@
     "@capacitor/core": "^8.6.2"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.6.2"
+    "@capacitor/cli": "^8.6.2",
+    "@supabase/supabase-js": "2.118.0",
+    "webm-muxer": "5.1.4"
   }
 }

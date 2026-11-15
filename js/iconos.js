@@ -7,6 +7,9 @@
 
 // Cada ícono en una cuadrícula de 24×24. "relleno" = figura sólida; si no, línea.
 const TRAZOS = {
+  persona: { linea: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0' },
+  salir: { linea: 'M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4' },
+  camara: { linea: 'M4 8h3l2-3h6l2 3h3v11H4zM12 16.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z' },
   play: { relleno: 'M8 5.5v13a.8.8 0 0 0 1.2.7l10.4-6.5a.8.8 0 0 0 0-1.4L9.2 4.8A.8.8 0 0 0 8 5.5z' },
   pausa: { relleno: 'M7 5h3.2v14H7zM13.8 5H17v14h-3.2z' },
   siguiente: { relleno: 'M5 5.6v12.8a.6.6 0 0 0 .9.5l9.1-6.4a.6.6 0 0 0 0-1L5.9 5.1a.6.6 0 0 0-.9.5zM17 5h2.2v14H17z' },

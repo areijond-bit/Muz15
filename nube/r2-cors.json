@@ -1,0 +1,8 @@
+[
+  {
+    "AllowedOrigins": ["https://areijond-bit.github.io", "http://localhost:5150"],
+    "AllowedMethods": ["GET", "PUT", "HEAD"],
+    "AllowedHeaders": ["Content-Type"],
+    "MaxAgeSeconds": 86400
+  }
+]

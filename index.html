@@ -17,6 +17,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
   <link rel="stylesheet" href="styles.css">
+  <!-- Cliente de Supabase (la nube de Muz15): deja window.supabase -->
+  <script src="js/vendor/supabase.js"></script>
 
   <!-- Consola en el teléfono: abre la app con ?debug al final de la URL -->
   <script>
@@ -33,6 +35,8 @@
   <!-- Los <span data-icono="…"> se llenan con íconos dibujados (js/iconos.js) -->
   <header class="cabecera">
     <h1 class="marca">Muz<span class="marca__numero">15</span></h1>
+    <!-- Tu foto (o tu inicial). Sin cuenta: botón para entrar. -->
+    <button id="perfil" class="boton-avatar" aria-label="Tu cuenta"><span data-icono="persona"></span></button>
     <button id="ajustes" class="boton-icono" aria-label="Ajustes"><span data-icono="ajustes"></span></button>
     <label class="boton-icono" aria-label="Importar canciones del teléfono">
       <span data-icono="subir"></span>
@@ -41,6 +45,12 @@
   </header>
 
   <p id="aviso" class="aviso" role="status" hidden></p>
+
+  <!-- "Escuchando en Galaxy S24: …" cuando suena en otro de tus dispositivos -->
+  <button id="escuchando-en" class="escuchando" hidden>
+    <span class="escuchando__ondas" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="escuchando__texto"><span id="escuchando-donde" class="escuchando__donde"></span><span id="escuchando-que" class="escuchando__que"></span></span>
+  </button>
 
   <main class="contenido">
     <!-- Canciones guardadas en el teléfono -->
@@ -62,6 +72,29 @@
       </div>
       <!-- Solo aparece al usar Muz15 en la PC (con tools/servidor.mjs) -->
       <button id="enviar-pc" class="pildora pildora--ancha" hidden><span data-icono="subir" data-tamano="20"></span> Enviar estas canciones a mi PC</button>
+    </section>
+
+    <!-- Lo que suben todos (como el inicio de YouTube) -->
+    <section id="vista-explorar" hidden>
+      <div class="encabezado-vista">
+        <h2 class="encabezado-vista__titulo">Explorar</h2>
+        <button id="recargar-explorar" class="boton-icono" aria-label="Actualizar"><span data-icono="actualizar"></span></button>
+      </div>
+      <div id="explorar-sin-cuenta" class="vacio" hidden>
+        <p class="vacio__titulo">Entra para ver lo que suben</p>
+        <p id="explorar-motivo" class="vacio__texto">Con tu cuenta ves los audios de tus amigos y los tuyos en todos tus dispositivos.</p>
+        <button id="explorar-entrar" class="boton boton--primario">Entrar con Google</button>
+      </div>
+      <div id="explorar-contenido" hidden>
+        <div id="explorar-perfil" class="perfil-explorar" hidden></div>
+        <label class="buscador-caja">
+          <span data-icono="buscar" data-tamano="20"></span>
+          <input id="buscar-explorar" class="buscador-caja__entrada" type="search" placeholder="Canción, artista o álbum" autocomplete="off">
+        </label>
+        <p id="estado-explorar" class="espacio"></p>
+        <ul id="lista-explorar" class="lista"></ul>
+        <button id="mas-explorar" class="pildora pildora--ancha" hidden>Ver más</button>
+      </div>
     </section>
 
     <!-- Álbumes (en tu PC) y Playlists (solo del teléfono) -->
@@ -174,6 +207,7 @@
   <!-- Navegación de abajo -->
   <nav class="navegacion" aria-label="Secciones">
     <button class="pestana pestana--activa" data-vista="telefono"><span data-icono="telefono"></span><span>Descargadas</span></button>
+    <button class="pestana" data-vista="explorar"><span data-icono="globo"></span><span>Explorar</span></button>
     <button class="pestana" data-vista="listas"><span data-icono="album"></span><span>Álbumes</span></button>
     <button class="pestana" data-vista="playlists"><span data-icono="playlist"></span><span>Playlists</span></button>
     <button class="pestana" data-vista="servidor"><span data-icono="pc"></span><span>Mi PC</span></button>
