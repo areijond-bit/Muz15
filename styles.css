@@ -1380,3 +1380,7 @@ body.con-pantalla { overflow: hidden; }
 .artista-cabecera { margin: var(--espacio-s) 0 var(--espacio-l); }
 .artista-cabecera__nombre { margin: 0; font-size: clamp(2rem, 9vw, 3.5rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1.05; }
 .artista-cabecera__meta { margin: var(--espacio-s) 0 0; color: var(--color-texto-suave); font-size: var(--texto-s); }
+
+/* Explorar */
+.explorar__nota { margin: -4px 0 var(--espacio-s); color: var(--color-texto-suave); font-size: var(--texto-xs); }
+.explorar__razon { display: block; margin-top: 2px; color: var(--color-acento); font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

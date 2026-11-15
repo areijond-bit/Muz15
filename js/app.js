@@ -3927,13 +3927,7 @@ async function pintarInicio() {
         reproductor.reproducirLista(deQuienesSigues, i);
       })))));
     }
-    const todos = canciones.filter((c) => c.dueno !== perfil?.id).slice(0, 10);
-    if (todos.length) {
-      const lista = document.createElement('ul');
-      lista.className = 'lista';
-      lista.append(...todos.map((cancion, i) => filaAudio(cancion, todos, i)));
-      el.inicioContenido.append(seccionInicio('Nuevo en Muzzy', lista));
-    }
+    el.inicioContenido.append(seccionExplorar(canciones.filter((c) => c.dueno !== perfil?.id)));
     if (!nube.conectado()) {
       const invitacion = document.createElement('div');
       invitacion.className = 'perfil-hoja';
@@ -3948,6 +3942,77 @@ async function pintarInicio() {
     }
     marcarSonando(reproductor.estado().cancion);
   } catch { /* sin internet: solo tus canciones */ }
+}
+
+/* ---------- Explorar: lo que el algoritmo elige para ti ---------- */
+
+const MOSTRAR_EXPLORAR = 10;
+const RAZONES = {
+  artista: 'por un artista que escuchas',
+  dueno: 'de alguien que te gusta',
+  vecinos: 'le gusta a gente como tú',
+  nuevo: 'nuevo',
+  popular: 'popular',
+};
+
+/** @param nuevos  si el algoritmo no responde (sin internet…), se muestran estos */
+function seccionExplorar(nuevos) {
+  const seccion = document.createElement('section');
+  seccion.className = 'seccion-inicio';
+  const cabecera = document.createElement('div');
+  cabecera.className = 'seccion-perfil__cabecera';
+  const titulo = document.createElement('h3');
+  titulo.className = 'seccion-inicio__titulo';
+  titulo.textContent = 'Explorar';
+  const otra = document.createElement('button');
+  otra.className = 'seccion-perfil__accion';
+  otra.innerHTML = `${icono('actualizar', 18)}<span>Otras</span>`;
+  cabecera.append(titulo, otra);
+  const nota = document.createElement('p');
+  nota.className = 'explorar__nota';
+  nota.textContent = 'Elegidas para ti según lo que escuchas, te gusta, guardas y sigues.';
+  const lista = document.createElement('ul');
+  lista.className = 'lista';
+  const verMas = document.createElement('button');
+  verMas.className = 'boton-ver-todos';
+  verMas.hidden = true;
+  seccion.append(cabecera, nota, lista, verMas);
+
+  const pintar = async () => {
+    otra.disabled = true;
+    let canciones;
+    try {
+      canciones = (await nube.recomendaciones(30)).map((a) => ({ ...comoCancion(a), razon: a.razon }));
+    } catch (error) {
+      console.warn('Explorar:', error.message);
+      canciones = nuevos.slice(0, 20);
+    }
+    otra.disabled = false;
+    const filas = canciones.map((cancion, i) => {
+      const fila = filaAudio(cancion, canciones, i);
+      if (cancion.razon && RAZONES[cancion.razon]) {
+        const razon = document.createElement('span');
+        razon.className = 'explorar__razon';
+        razon.textContent = RAZONES[cancion.razon];
+        fila.querySelector('.cancion__info')?.append(razon);
+      }
+      fila.hidden = i >= MOSTRAR_EXPLORAR;
+      return fila;
+    });
+    lista.replaceChildren(...filas);
+    seccion.hidden = !filas.length;
+    verMas.hidden = filas.length <= MOSTRAR_EXPLORAR;
+    verMas.textContent = 'Ver más';
+    verMas.onclick = () => {
+      const abiertas = !filas[MOSTRAR_EXPLORAR].hidden;
+      filas.forEach((f, i) => { f.hidden = abiertas && i >= MOSTRAR_EXPLORAR; });
+      verMas.textContent = abiertas ? 'Ver más' : 'Ver menos';
+    };
+    marcarSonando(reproductor.estado().cancion);
+  };
+  otra.addEventListener('click', pintar); // trae otra mezcla (el algoritmo tiene un poco de azar)
+  pintar();
+  return seccion;
 }
 
 /* ---------- Top: los más escuchados ---------- */

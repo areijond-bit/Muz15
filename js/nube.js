@@ -759,6 +759,18 @@ export async function audioPorId(id) {
   return data;
 }
 
+/**
+ * Explorar: audios elegidos para ti por el algoritmo (función "recomendaciones" en
+ * nube/esquema.sql). Usa lo que escuchas en este dispositivo y, con cuenta, también
+ * tus me gusta, lo que guardas y a quién sigues. @returns audios con "razon"
+ */
+export async function recomendaciones(limite = 20) {
+  const { data: filas, error } = await db().rpc('recomendaciones', { p_dispositivo: dispositivo().id, p_limite: limite });
+  if (error) throw traducir(error);
+  const audios = new Map((await audiosPorIds(filas.map((f) => f.audio))).map((a) => [a.id, a]));
+  return filas.map((f) => audios.get(f.audio) && { ...audios.get(f.audio), razon: f.razon }).filter(Boolean);
+}
+
 /** Todas las canciones de un artista (por su nombre, sin importar mayúsculas). */
 export async function audiosDeArtista(nombre) {
   const exacto = nombre.replace(/[%_\\]/g, (c) => `\\${c}`); // que "%" o "_" no sean comodines
