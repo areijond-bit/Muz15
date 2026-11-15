@@ -4,11 +4,13 @@
 // Usamos esto en vez de confirm() / prompt() del navegador porque en las apps
 // instaladas de Android esas ventanitas a veces no aparecen.
 
+import { icono } from './iconos.js';
+
 /**
  * @param {object} opciones
  * @param {string} opciones.titulo
  * @param {string} [opciones.subtitulo]
- * @param {{texto: string, peligro?: boolean, alElegir: () => void}[]} [opciones.acciones]
+ * @param {{texto: string, icono?: string, peligro?: boolean, alElegir: () => void}[]} [opciones.acciones]
  * @param {{placeholder: string, valor?: string, numero?: boolean, textoBoton: string, alAceptar: (texto: string) => void}} [opciones.entrada]
  * @param {HTMLElement} [opciones.contenido]  cualquier otro contenido (ej. un formulario)
  * @returns {() => void} función para cerrar la hoja
@@ -79,7 +81,9 @@ export function abrirHoja({ titulo, subtitulo, acciones = [], entrada, contenido
     const boton = document.createElement('button');
     boton.className = 'hoja__accion';
     if (accion.peligro) boton.classList.add('hoja__accion--peligro');
-    boton.textContent = accion.texto;
+    // Ícono dibujado a la izquierda (ver js/iconos.js), si la acción trae uno.
+    if (accion.icono) boton.insertAdjacentHTML('beforeend', icono(accion.icono));
+    boton.append(accion.texto);
     boton.addEventListener('click', () => {
       cerrar();
       accion.alElegir();

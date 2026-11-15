@@ -128,18 +128,22 @@ export async function listarCanciones() {
 
 /* ---------- Álbumes (playlists de Navidrome) ---------- */
 // Viven en el servidor, así que son los mismos en el cel, la PC o donde abras Muz15.
-// Los vínculos (⛓ "después de A siempre suena B") viajan en el comentario de la
-// playlist, con el formato  muz15:{"v":[["idA","idB"], ...]}
+// En el comentario de la playlist viaja lo que Navidrome no guarda por sí solo:
+//   v: los vínculos ("después de A siempre suena B")
+//   d: los datos de cada canción tal como los editó el dueño del álbum
+//      (título, artista, álbum), para que en los demás dispositivos se vean igual.
+// Formato:  muz15:{"v":[["idA","idB"], ...], "d":{"id":{"t":"…","a":"…","al":"…"}}}
 
 const PREFIJO_COMENTARIO = 'muz15:';
 
-/** Lee los vínculos guardados en el comentario: { idServidorA: idServidorB }. */
-function leerVinculos(comentario) {
-  if (!comentario?.startsWith(PREFIJO_COMENTARIO)) return {};
+/** Lee lo guardado en el comentario: { vinculos: {idA: idB}, datos: {id: {t, a, al}} } */
+function leerComentarioMuz15(comentario) {
+  if (!comentario?.startsWith(PREFIJO_COMENTARIO)) return { vinculos: {}, datos: {} };
   try {
-    return Object.fromEntries(JSON.parse(comentario.slice(PREFIJO_COMENTARIO.length)).v ?? []);
+    const guardado = JSON.parse(comentario.slice(PREFIJO_COMENTARIO.length));
+    return { vinculos: Object.fromEntries(guardado.v ?? []), datos: guardado.d ?? {} };
   } catch {
-    return {};
+    return { vinculos: {}, datos: {} };
   }
 }
 
@@ -165,7 +169,13 @@ export async function listarPlaylists() {
 /** Un álbum completo: datos, canciones en orden y vínculos. */
 export async function obtenerPlaylist(idServidor) {
   const { playlist } = await llamar('getPlaylist', { id: idServidor });
-  return { ...aAlbum(playlist), canciones: (playlist.entry ?? []).map(aCancion), vinculos: leerVinculos(playlist.comment) };
+  const { vinculos, datos } = leerComentarioMuz15(playlist.comment);
+  // Las canciones con los datos que editó el dueño del álbum (si los editó).
+  const canciones = (playlist.entry ?? []).map(aCancion).map((c) => {
+    const d = datos[c.idServidor];
+    return d ? { ...c, titulo: d.t || c.titulo, artista: d.a || c.artista, album: d.al ?? c.album } : c;
+  });
+  return { ...aAlbum(playlist), canciones, vinculos, datos };
 }
 
 /** Las canciones de un álbum, en su orden. */
@@ -176,10 +186,11 @@ export async function cancionesDePlaylist(idServidor) {
 /**
  * Crea el álbum (si no trae idServidor) o reemplaza sus canciones, nombre,
  * vínculos y si es público.
- * @param {{idServidor?: string, nombre: string, idsCanciones: string[], vinculos?: Object<string,string>, publico?: boolean}} album
+ * @param {{idServidor?: string, nombre: string, idsCanciones: string[], vinculos?: Object<string,string>,
+ *          datos?: Object<string, {t: string, a: string, al: string}>, publico?: boolean}} album
  * @returns {Promise<string>} el id del álbum en el servidor
  */
-export async function guardarPlaylist({ idServidor, nombre, idsCanciones, vinculos = {}, publico = false }) {
+export async function guardarPlaylist({ idServidor, nombre, idsCanciones, vinculos = {}, datos = {}, publico = false }) {
   let id = idServidor;
   if (!id) {
     const json = await llamar('createPlaylist', { name: nombre, songId: idsCanciones });
@@ -189,11 +200,15 @@ export async function guardarPlaylist({ idServidor, nombre, idsCanciones, vincul
     await llamar('createPlaylist', { playlistId: id, songId: idsCanciones });
   }
   const pares = Object.entries(vinculos);
+  const hayDatos = Object.keys(datos).length > 0;
+  const extra = {};
+  if (pares.length) extra.v = pares;
+  if (hayDatos) extra.d = datos;
   await llamar('updatePlaylist', {
     playlistId: id,
     name: nombre,
     public: String(publico),
-    comment: pares.length ? PREFIJO_COMENTARIO + JSON.stringify({ v: pares }) : '',
+    comment: pares.length || hayDatos ? PREFIJO_COMENTARIO + JSON.stringify(extra) : '',
   });
   return id;
 }

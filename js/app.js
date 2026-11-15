@@ -15,6 +15,7 @@ import {
 } from './archivos.js';
 import * as servidor from './servidor.js';
 import { abrirHoja, confirmar } from './hoja.js';
+import { icono, ponerIconos } from './iconos.js';
 import { esApk, AppNativa } from './nativo.js';
 import { crearEcualizador, BANDAS, PERFILES, MAXIMO_DB, OPCIONES_TOPE_DB } from './ecualizador.js';
 
@@ -26,6 +27,7 @@ const el = {
   vacio: $('vacio'),
   espacio: $('espacio'),
   portada: $('portada'),
+  barraReproductor: $('reproductor'),
   titulo: $('titulo'),
   artista: $('artista'),
   progreso: $('progreso'),
@@ -63,6 +65,15 @@ const el = {
   reproducirLista: $('reproducir-lista'),
   cancionesLista: $('canciones-lista'),
   listaVacia: $('lista-vacia'),
+  tituloVistaListas: $('titulo-vista-listas'),
+  mosaico: $('mosaico'),
+  metaLista: $('meta-lista'),
+  estadoLista: $('estado-lista'),
+  cabeceraLista: $('cabecera-lista'),
+  aleatorioLista: $('aleatorio-lista'),
+  agregarALista: $('agregar-a-lista'),
+  editarLista: $('editar-lista'),
+  reproducirDescargadas: $('reproducir-descargadas'),
   listasPC: $('listas-pc'),
   tituloListasTelefono: $('titulo-listas-telefono'),
   refrescar: $('refrescar'),
@@ -71,6 +82,9 @@ const el = {
   estadoListasPC: $('estado-listas-pc'),
   listasServidor: $('listas-servidor'),
 };
+
+// Los íconos dibujados de la pantalla (los <span data-icono="…"> del HTML).
+ponerIconos();
 
 // Para no dibujar miles de filas de golpe: con más resultados, hay que buscar.
 const MAXIMO_EN_PANTALLA = 200;
@@ -298,7 +312,7 @@ async function recargarLista() {
   pintarLista(cancionesLocales);
   pintarListas();
   pintarEspacio();
-  if (cancionesServidor.length) pintarListaServidor(); // actualiza los ✓ de descargadas
+  if (cancionesServidor.length) pintarListaServidor(); // actualiza las marcas de descargadas
   programarRespaldo();
   // APK nueva: las canciones recién importadas o bajadas pasan a archivos del teléfono.
   if (hayReproductorNativo && cancionesLocales.some((c) => !c.enArchivo)) asegurarArchivos();
@@ -397,7 +411,7 @@ async function ofrecerRecuperacion() {
       titulo: 'Este teléfono no tiene canciones',
       subtitulo: 'Tu PC guardó la lista de lo que tenías descargado. ¿Lo bajo todo de nuevo?',
       acciones: respaldos.map((r) => ({
-        texto: `⬇ Recuperar ${r.total} canciones — ${r.nombre.replace(PREFIJO_RESPALDO, '').trim() || 'respaldo'}`,
+        icono: 'descargar', texto: `Recuperar ${r.total} canciones — ${r.nombre.replace(PREFIJO_RESPALDO, '').trim() || 'respaldo'}`,
         alElegir: async () => {
           const canciones = await servidor.cancionesDePlaylist(r.idServidor);
           await asegurarBibliotecaServidor();
@@ -425,12 +439,12 @@ function pintarLista(canciones) {
   marcarSonando(reproductor.estado().cancion);
 }
 
-/** Botón ⋯ al final de una fila. */
+/** Botón de opciones (tres puntos) al final de una fila. */
 function botonMenu(cancion, alTocar) {
   const boton = document.createElement('button');
   boton.className = 'cancion__borrar';
   boton.setAttribute('aria-label', `Opciones de ${cancion.titulo}`);
-  boton.textContent = '⋯';
+  boton.innerHTML = icono('mas');
   boton.addEventListener('click', (evento) => {
     evento.stopPropagation(); // que no empiece a sonar
     alTocar();
@@ -446,10 +460,10 @@ function menuCancion(cancion) {
     subtitulo: cancion.artista,
     acciones: [
       { texto: '+ Agregar a playlist o álbum', alElegir: () => elegirLista(cancion) },
-      { texto: '✎ Editar título, artista y portada', alElegir: () => editarCancion(cancion) },
+      { icono: 'editar', texto: 'Editar título, artista y portada', alElegir: () => editarCancion(cancion) },
       cancion.siguienteFija && porId(cancion.siguienteFija)
-        ? { texto: `⛓ Quitar vínculo con "${porId(cancion.siguienteFija).titulo}"`, alElegir: () => vincular(cancion, null) }
-        : { texto: '⛓ Vincular: que siempre siga otra canción', alElegir: () => elegirVinculo(cancion) },
+        ? { icono: 'enlace', texto: `Quitar vínculo con "${porId(cancion.siguienteFija).titulo}"`, alElegir: () => vincular(cancion, null) }
+        : { icono: 'enlace', texto: 'Vincular: que siempre siga otra canción', alElegir: () => elegirVinculo(cancion) },
       {
         texto: 'Borrar del teléfono',
         peligro: true,
@@ -474,7 +488,7 @@ function menuCancion(cancion) {
  *  🎵 Playlist: solo de este teléfono, con tus canciones descargadas.
  * Las listas de antes (sin tipo) son álbumes. */
 const esPlaylist = (lista) => lista.tipo === 'playlist';
-const iconoLista = (lista) => (esPlaylist(lista) ? '🎵' : '💿');
+const iconoLista = (lista) => (esPlaylist(lista) ? 'playlist' : 'album');
 const nombreTipo = (lista) => (esPlaylist(lista) ? 'playlist' : 'álbum');
 
 function elegirLista(cancion) {
@@ -485,7 +499,8 @@ function elegirLista(cancion) {
       { texto: '+ Nueva playlist (solo este teléfono)', alElegir: () => crearLista(cancion, 'playlist') },
       { texto: '+ Nuevo álbum (en todos tus dispositivos)', alElegir: () => crearLista(cancion, 'album') },
       ...listas.map((lista) => ({
-        texto: `${iconoLista(lista)} ${lista.nombre}${lista.canciones.includes(cancion.id) ? '  ✓' : ''}`,
+        icono: lista.canciones.includes(cancion.id) ? 'descargado' : iconoLista(lista),
+        texto: lista.nombre,
         alElegir: () => agregarALista(lista, cancion),
       })),
     ],
@@ -551,6 +566,7 @@ function editarCancion(cancion) {
       titulo: campos.titulo.value.trim(),
       artista,
       album: campos.album.value.trim(),
+      editada: true, // la editaste a mano: si está en un álbum, el cambio viaja a los demás
       ...(nuevaPortada !== undefined && { portada: nuevaPortada }),
     };
     if (portadas.has(cancion.id) && nuevaPortada !== undefined) {
@@ -558,10 +574,21 @@ function editarCancion(cancion) {
       portadas.delete(cancion.id);
     }
     await actualizarCancion({ ...cancion, ...cambios });
+    const editadas = [cancion.id];
     if (campos.todas.checked) {
-      for (const otra of sinArtista) await actualizarCancion({ ...otra, artista });
+      for (const otra of sinArtista) {
+        await actualizarCancion({ ...otra, artista, editada: true });
+        editadas.push(otra.id);
+      }
     }
     await recargarLista();
+    // Los álbumes (en tu PC) que tienen estas canciones se vuelven a subir: así el
+    // título/artista nuevo les llega a todos los que tengan ese álbum.
+    for (const lista of listas) {
+      if (!esPlaylist(lista) && lista.idServidor && lista.canciones.some((id) => editadas.includes(id))) {
+        await guardarLista(lista);
+      }
+    }
     mostrarAviso('Cambios guardados.', 2500);
   });
 
@@ -613,7 +640,7 @@ async function vincular(cancion, siguiente) {
 /** Texto bajo el título: el artista, y si tiene vínculo, a qué canción lleva. */
 function subtitulo(cancion) {
   const siguiente = cancion.siguienteFija && porId(cancion.siguienteFija);
-  return siguiente ? `${cancion.artista}  ·  ⛓ luego "${siguiente.titulo}"` : cancion.artista;
+  return siguiente ? `${cancion.artista} · luego "${siguiente.titulo}"` : cancion.artista;
 }
 
 async function agregarALista(lista, cancion) {
@@ -761,8 +788,19 @@ async function subirLista(id) {
         idsCanciones = [...new Set([...yaEstaban, ...idsCanciones])];
       }
     }
+    // Los títulos/artistas que editaste aquí y que son distintos a los del archivo en tu
+    // PC: viajan con el álbum para que todos los que lo tengan los vean igual.
+    const datos = {};
+    for (const cancion of cancionesDe(lista)) {
+      const id = idEnServidor(cancion);
+      const original = cancionesServidor.find((s) => s.idServidor === id);
+      if (!id || !original || !cancion.editada) continue; // solo lo que editaste a mano
+      if (original.titulo !== cancion.titulo || original.artista !== cancion.artista || (original.album || '') !== (cancion.album || '')) {
+        datos[id] = { t: cancion.titulo, a: cancion.artista, al: cancion.album || '' };
+      }
+    }
     const idServidor = await servidor.guardarPlaylist({
-      idServidor: idDestino, nombre: lista.nombre, idsCanciones, vinculos, publico: Boolean(lista.publico),
+      idServidor: idDestino, nombre: lista.nombre, idsCanciones, vinculos, datos, publico: Boolean(lista.publico),
     });
     // Anotamos el id y la "fecha de cambio" del servidor: así la revisión automática
     // no confunde nuestro propio cambio con uno hecho en otro dispositivo.
@@ -921,11 +959,11 @@ function pintarPlaylistsServidor() {
       boton.textContent = '…';
       boton.disabled = true;
     } else if (completa) {
-      boton.textContent = '✓';
+      boton.innerHTML = icono('descargado');
       boton.classList.add('cancion__accion--hecha');
       boton.setAttribute('aria-label', 'Ya está en este teléfono');
     } else {
-      boton.textContent = local ? '⟳' : '⬇';
+      boton.innerHTML = icono(local ? 'actualizar' : 'descargar');
       boton.setAttribute('aria-label', `Descargar playlist ${playlist.nombre}`);
     }
     boton.addEventListener('click', (evento) => {
@@ -934,7 +972,7 @@ function pintarPlaylistsServidor() {
     });
     const portada = playlist.portadaId ? servidor.urlPortada({ portadaId: playlist.portadaId }, 96) : 'icons/portada.png';
     const detalles = [
-      playlist.publico ? '🌐 Público' : '🔒 Privado',
+      playlist.publico ? 'Público' : 'Privado',
       `${playlist.total} ${playlist.total === 1 ? 'canción' : 'canciones'}`,
       playlist.mio ? '' : `de ${playlist.dueno}`,
       local ? 'en este teléfono' : '',
@@ -975,6 +1013,20 @@ async function descargarPlaylist(playlist, { silencioso = false } = {}) {
     }
     await recargarLista();
 
+    // Si el dueño del álbum editó títulos o artistas, se aplican también a tus copias
+    // (incluidas las que ya tenías). Solo las que él editó: lo demás se queda como lo dejaste.
+    let datosCambiados = 0;
+    for (const deAlla of completo.canciones) {
+      if (!completo.datos[deAlla.idServidor]) continue;
+      const aqui = local(deAlla.idServidor);
+      if (!aqui) continue;
+      if (aqui.titulo !== deAlla.titulo || aqui.artista !== deAlla.artista || (aqui.album || '') !== (deAlla.album || '')) {
+        await actualizarCancion({ ...aqui, titulo: deAlla.titulo, artista: deAlla.artista, album: deAlla.album || '' });
+        datosCambiados++;
+      }
+    }
+    if (datosCambiados) await recargarLista();
+
     // Ids del servidor → canciones de este dispositivo (para el orden y los vínculos).
     let ids = completo.canciones.map((c) => local(c.idServidor)?.id).filter(Boolean);
     const existente = listas.find((l) => l.idServidor === playlist.idServidor);
@@ -997,9 +1049,9 @@ async function descargarPlaylist(playlist, { silencioso = false } = {}) {
     await guardarLista(lista, { subir: false }); // viene del servidor: no hace falta subirla
     await recargarLista();
 
-    const cambio = antes !== JSON.stringify([lista.nombre, lista.canciones, lista.vinculos]);
+    const cambio = datosCambiados > 0 || antes !== JSON.stringify([lista.nombre, lista.canciones, lista.vinculos]);
     if (fallidas) {
-      mostrarAviso(`"${completo.nombre}": ${fallidas} canciones no se pudieron bajar. Toca ⟳ para reintentar.`, 5000);
+      mostrarAviso(`"${completo.nombre}": ${fallidas} canciones no se pudieron bajar. Desliza hacia abajo para reintentar.`, 5000);
     } else if (!silencioso) {
       mostrarAviso(`Álbum "${completo.nombre}" descargado: ${ids.length} canciones (ya están en Descargadas).`, 5000);
     } else if (cambio) {
@@ -1050,28 +1102,40 @@ function pintarListas() {
 
   if (!abierta) {
     const delTipo = listas.filter((l) => (tipoVista === 'playlist') === esPlaylist(l));
-    el.nuevaLista.textContent = tipoVista === 'playlist' ? '+ Nueva playlist' : '+ Nuevo álbum';
-    el.tituloListasTelefono.textContent = tipoVista === 'playlist' ? 'Tus playlists (solo este teléfono)' : 'Álbumes en este teléfono';
+    el.tituloVistaListas.textContent = tipoVista === 'playlist' ? 'Playlists' : 'Álbumes';
+    el.nuevaLista.setAttribute('aria-label', tipoVista === 'playlist' ? 'Nueva playlist' : 'Nuevo álbum');
+    el.tituloListasTelefono.textContent = tipoVista === 'playlist' ? 'Solo en este teléfono' : 'En este teléfono';
     el.sinListas.innerHTML = tipoVista === 'playlist'
-      ? 'Arma playlists con tus canciones de <strong>Descargadas</strong> (⋯ → Agregar a playlist o álbum). Solo viven en este teléfono.'
+      ? 'Arma playlists con tus canciones de <strong>Descargadas</strong> (tres puntos → Agregar a playlist o álbum). Solo viven en este teléfono.'
       : 'Los álbumes se guardan en tu PC y los ves en todos tus dispositivos. Crea uno o descarga los de abajo.';
     el.sinListas.hidden = delTipo.length > 0;
     el.listas.replaceChildren(...delTipo.map((lista) => {
       const canciones = cancionesDe(lista);
-      const detalles = [`${canciones.length} ${canciones.length === 1 ? 'canción' : 'canciones'}`];
-      if (!esPlaylist(lista)) detalles.unshift(lista.publico ? '🌐 Público' : '🔒 Privado');
+      const detalles = [esPlaylist(lista) ? 'Playlist' : 'Álbum', `${canciones.length} ${canciones.length === 1 ? 'canción' : 'canciones'}`];
       return crearFila(
-        { id: lista.id, titulo: `${iconoLista(lista)} ${lista.nombre}`, artista: detalles.join(' · ') },
-        canciones[0] ? urlDePortada(canciones[0]) : 'icons/portada.png',
+        { id: lista.id, titulo: lista.nombre, artista: detalles.join(' · ') },
+        portadasDistintas(canciones),
         botonMenu({ titulo: lista.nombre }, () => menuLista(lista)),
-        () => { listaAbierta = lista.id; pintarListas(); },
+        () => { listaAbierta = lista.id; pintarListas(); window.scrollTo(0, 0); },
       );
     }));
     return;
   }
 
   const canciones = cancionesParaReproducir(abierta);
-  el.nombreLista.textContent = `${iconoLista(abierta)} ${abierta.nombre}`;
+  const portadas = portadasDistintas(canciones);
+  el.nombreLista.textContent = abierta.nombre;
+  el.mosaico.replaceWith(el.mosaico = crearMosaico(portadas));
+  el.mosaico.id = 'mosaico';
+  // Datos debajo del nombre: público/privado (álbumes) y cuántas canciones.
+  el.metaLista.innerHTML = esPlaylist(abierta)
+    ? `${icono('telefono', 16)}<span>Playlist · solo en este teléfono · ${canciones.length} ${canciones.length === 1 ? 'canción' : 'canciones'}</span>`
+    : `${icono(abierta.publico ? 'globo' : 'candado', 16)}<span>${abierta.publico ? 'Público' : 'Privado'} · ${canciones.length} ${canciones.length === 1 ? 'canción' : 'canciones'}</span>`;
+  el.estadoLista.innerHTML = canciones.length ? `${icono('descargado', 22)}<span>Descargado</span>` : '';
+  // El degradado de arriba toma el color de la portada.
+  colorDePortada(portadas[0]).then((color) => {
+    el.cabeceraLista.style.setProperty('--color-portada', color ?? '#2a2a2a');
+  });
   el.listaVacia.hidden = canciones.length > 0;
   el.reproducirLista.disabled = canciones.length === 0;
   el.cancionesLista.replaceChildren(...canciones.map((cancion, i) => {
@@ -1090,9 +1154,9 @@ function menuCancionEnLista(lista, cancion) {
     subtitulo: cancion.artista,
     acciones: [
       siguiente
-        ? { texto: `⛓ Quitar vínculo con "${siguiente.titulo}"`, alElegir: () => vincularEnLista(lista, cancion, null) }
-        : { texto: `⛓ Vincular en este ${nombreTipo(lista)}: que siempre siga otra`, alElegir: () => elegirVinculoEnLista(lista, cancion) },
-      { texto: '✎ Editar título, artista y portada', alElegir: () => editarCancion(cancion) },
+        ? { icono: 'enlace', texto: `Quitar vínculo con "${siguiente.titulo}"`, alElegir: () => vincularEnLista(lista, cancion, null) }
+        : { icono: 'enlace', texto: `Vincular en este ${nombreTipo(lista)}: que siempre siga otra`, alElegir: () => elegirVinculoEnLista(lista, cancion) },
+      { icono: 'editar', texto: 'Editar título, artista y portada', alElegir: () => editarCancion(cancion) },
       { texto: `Quitar de "${lista.nombre}"`, alElegir: () => quitarDeLista(lista, cancion) },
     ],
   });
@@ -1152,6 +1216,37 @@ activarArrastre(el.cancionesLista, async (ids) => {
   await recargarLista();
 });
 
+// El aleatorio del álbum es el mismo de toda la app.
+el.aleatorioLista.addEventListener('click', () => el.aleatorio.click());
+el.editarLista.addEventListener('click', () => {
+  const lista = listas.find((l) => l.id === listaAbierta);
+  if (lista) menuLista(lista);
+});
+
+// Agregar: elige canciones de Descargadas que todavía no estén en este álbum/playlist.
+el.agregarALista.addEventListener('click', () => {
+  const lista = listas.find((l) => l.id === listaAbierta);
+  if (!lista) return;
+  const faltan = cancionesLocales.filter((c) => !lista.canciones.includes(c.id));
+  if (!faltan.length) return mostrarAviso('Ya tiene todas tus canciones descargadas.', 3000);
+  abrirHoja({
+    titulo: `Agregar a "${lista.nombre}"`,
+    subtitulo: 'Toca una canción para agregarla.',
+    acciones: faltan.map((cancion) => ({
+      icono: 'agregar',
+      texto: `${cancion.titulo} — ${cancion.artista}`,
+      alElegir: () => agregarALista(lista, cancion),
+    })),
+  });
+});
+
+el.reproducirDescargadas.addEventListener('click', () => {
+  if (!cancionesLocales.length) return;
+  listaQueSuena = null;
+  const desde = reproductor.estado().aleatorio ? Math.floor(Math.random() * cancionesLocales.length) : 0;
+  reproductor.reproducirLista(cancionesLocales, desde);
+});
+
 el.reproducirLista.addEventListener('click', () => {
   const lista = listas.find((l) => l.id === listaAbierta);
   if (lista && cancionesDe(lista).length) reproducirDeLista(lista, 0);
@@ -1170,9 +1265,10 @@ async function quitarDeLista(lista, cancion) {
 function menuLista(lista) {
   const palabra = nombreTipo(lista);
   const publicoPrivado = esPlaylist(lista) ? [] : [{
+    icono: lista.publico ? 'candado' : 'globo',
     texto: lista.publico
-      ? '🔒 Hacer privado (solo tú lo ves)'
-      : '🌐 Hacer público (lo ve cualquiera con cuenta en tu Navidrome)',
+      ? 'Hacer privado (solo tú lo ves)'
+      : 'Hacer público (lo ve cualquiera con cuenta en tu Navidrome)',
     alElegir: async () => {
       await guardarLista({ ...lista, publico: !lista.publico });
       await recargarLista();
@@ -1190,7 +1286,7 @@ function menuLista(lista) {
     },
   }];
   abrirHoja({
-    titulo: `${iconoLista(lista)} ${lista.nombre}`,
+    titulo: lista.nombre,
     subtitulo: esPlaylist(lista) ? 'Playlist: solo en este teléfono.' : `Álbum: está en tu PC · ${lista.publico ? 'público' : 'privado'}.`,
     acciones: [
       ...publicoPrivado,
@@ -1243,27 +1339,94 @@ function crearFila(cancion, portada, boton, alTocar, { arrastrable = false } = {
     const agarradera = document.createElement('span');
     agarradera.className = 'cancion__arrastre';
     agarradera.setAttribute('aria-label', 'Arrastra para mover');
-    agarradera.textContent = '⋮⋮';
+    agarradera.innerHTML = icono('arrastrar', 18);
     li.append(agarradera);
   }
 
-  const img = document.createElement('img');
-  img.className = 'cancion__portada';
-  img.alt = '';
-  img.loading = 'lazy';
-  img.src = portada;
-  img.onerror = () => { img.onerror = null; img.src = 'icons/portada.png'; };
+  // Una portada, o varias (álbumes y playlists) en mosaico de 4.
+  const imagen = Array.isArray(portada) ? crearMosaico(portada, 'mosaico--chico') : crearPortada(portada, 'cancion__portada');
 
   const info = document.createElement('div');
   info.className = 'cancion__info';
   info.innerHTML = '<p class="cancion__titulo"></p><p class="cancion__artista"></p>';
   info.children[0].textContent = cancion.titulo;
-  // Las canciones del teléfono muestran también su vínculo, si tienen.
-  info.children[1].textContent = cancion.agregada ? subtitulo(cancion) : cancion.artista;
+  // Las canciones del teléfono llevan la marquita verde de "descargada" y su vínculo, si tienen.
+  const linea = document.createElement('span');
+  linea.textContent = cancion.agregada ? subtitulo(cancion) : cancion.artista;
+  if (cancion.agregada) info.children[1].insertAdjacentHTML('beforeend', icono('descargado', 14));
+  info.children[1].append(linea);
 
-  li.append(img, info, boton);
+  li.append(imagen, info, boton);
   li.addEventListener('click', alTocar);
   return li;
+}
+
+function crearPortada(url, clase) {
+  const img = document.createElement('img');
+  img.className = clase;
+  img.alt = '';
+  img.loading = 'lazy';
+  img.src = url;
+  img.onerror = () => { img.onerror = null; img.src = 'icons/portada.png'; };
+  return img;
+}
+
+/** Hasta 4 portadas distintas en cuadrícula (si hay menos de 4, solo la primera). */
+function crearMosaico(urls, claseExtra = '') {
+  const distintas = [...new Set(urls)].slice(0, 4);
+  const caja = document.createElement('div');
+  caja.className = `mosaico ${claseExtra}`.trim();
+  const usar = distintas.length >= 4 ? distintas : distintas.slice(0, 1);
+  if (usar.length < 4) caja.classList.add('mosaico--una');
+  for (const url of usar.length ? usar : ['icons/portada.png']) caja.append(crearPortada(url, ''));
+  return caja;
+}
+
+/* El color de una portada (promedio, un poco oscurecido) para los degradados. */
+const coloresDePortada = new Map();
+function colorDePortada(url) {
+  if (!url) return Promise.resolve(null);
+  if (!coloresDePortada.has(url)) {
+    coloresDePortada.set(url, new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous'; // las portadas de tu PC permiten leer sus colores
+      img.onload = () => {
+        try {
+          const lienzo = document.createElement('canvas');
+          lienzo.width = lienzo.height = 12;
+          const ctx = lienzo.getContext('2d');
+          ctx.drawImage(img, 0, 0, 12, 12);
+          const datos = ctx.getImageData(0, 0, 12, 12).data;
+          let r = 0, g = 0, b = 0;
+          for (let i = 0; i < datos.length; i += 4) { r += datos[i]; g += datos[i + 1]; b += datos[i + 2]; }
+          const n = datos.length / 4;
+          const oscurecer = 0.75;
+          resolve(`rgb(${Math.round((r / n) * oscurecer)}, ${Math.round((g / n) * oscurecer)}, ${Math.round((b / n) * oscurecer)})`);
+        } catch {
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = url;
+    }));
+  }
+  return coloresDePortada.get(url);
+}
+
+/**
+ * Las portadas distintas de unas canciones (para el mosaico). Dos canciones del
+ * mismo disco traen la misma imagen: se reconoce por su tamaño en bytes.
+ */
+function portadasDistintas(canciones) {
+  const vistas = new Set();
+  const urls = [];
+  for (const cancion of canciones) {
+    const clave = cancion.portada?.datos?.byteLength ?? urlDePortada(cancion);
+    if (vistas.has(clave)) continue;
+    vistas.add(clave);
+    urls.push(urlDePortada(cancion));
+  }
+  return urls;
 }
 
 function urlDePortada(cancion) {
@@ -1295,7 +1458,8 @@ async function pintarEspacio() {
   const espacio = await espacioUsado();
   if (!espacio) return;
   const mb = (bytes) => (bytes / 1024 / 1024).toFixed(0);
-  el.espacio.textContent = `Usando ${mb(espacio.usado)} MB de ${mb(espacio.total)} MB disponibles`;
+  const n = cancionesLocales.length;
+  el.espacio.textContent = `${n} ${n === 1 ? 'canción' : 'canciones'} · ${mb(espacio.usado)} MB`;
 }
 
 /* ---------- Pestañas ---------- */
@@ -1425,7 +1589,7 @@ function pintarBotonDescargarTodas() {
   boton.hidden = faltan.length === 0;
   const peso = faltan.reduce((suma, c) => suma + c.tamano, 0);
   const alcance = el.buscar.value.trim() ? 'estas' : 'todas';
-  boton.textContent = `⬇ Descargar ${alcance} (${faltan.length}${peso ? ` · ${mb(peso)} MB` : ''})`;
+  boton.innerHTML = `${icono('descargar', 20)} Descargar ${alcance} (${faltan.length}${peso ? ` · ${mb(peso)} MB` : ''})`;
 }
 
 el.descargarTodas.addEventListener('click', async () => {
@@ -1483,14 +1647,14 @@ function botonDescarga(cancion) {
   const boton = document.createElement('button');
   boton.className = 'cancion__accion';
   if (localDe(cancion)) {
-    boton.textContent = '✓';
+    boton.innerHTML = icono('descargado');
     boton.classList.add('cancion__accion--hecha');
     boton.setAttribute('aria-label', 'Ya está en el teléfono');
   } else if (descargando.has(cancion.idServidor)) {
     boton.textContent = '…';
     boton.disabled = true;
   } else {
-    boton.textContent = '⬇';
+    boton.innerHTML = icono('descargar');
     boton.setAttribute('aria-label', `Descargar ${cancion.titulo}`);
   }
   boton.addEventListener('click', (evento) => {
@@ -1535,12 +1699,18 @@ async function descargarDelServidor(cancion, { silencioso = false } = {}) {
 
 function pintarReproductor({ cancion, sonando, aleatorio, urlPortada }) {
   if (cancion) guardarUltima(!sonando); // cambió de canción o se pausó: guardar ya
-  el.aleatorio.setAttribute('aria-pressed', String(aleatorio));
-  el.aleatorio.setAttribute('aria-label', `Modo aleatorio: ${aleatorio ? 'encendido' : 'apagado'}`);
+  for (const boton of [el.aleatorio, el.aleatorioLista]) {
+    boton.setAttribute('aria-pressed', String(aleatorio));
+    boton.setAttribute('aria-label', `Modo aleatorio: ${aleatorio ? 'encendido' : 'apagado'}`);
+  }
   el.titulo.textContent = cancion?.titulo ?? 'Nada sonando';
   el.artista.textContent = cancion?.artista ?? 'Elige una canción';
-  el.portada.src = urlPortada;
-  el.alternar.textContent = sonando ? '⏸' : '▶';
+  if (el.portada.src !== urlPortada) {
+    el.portada.src = urlPortada;
+    // El reproductor flotante toma el color de la portada de lo que suena.
+    colorDePortada(urlPortada).then((color) => el.barraReproductor.style.setProperty('--color-portada', color ?? '#2a2a2a'));
+  }
+  el.alternar.innerHTML = icono(sonando ? 'pausa' : 'play', 30);
   el.alternar.setAttribute('aria-label', sonando ? 'Pausar' : 'Reproducir');
   marcarSonando(cancion);
 }
@@ -1573,6 +1743,8 @@ function pintarProgreso({ actual, duracion }) {
   if (arrastrando) return;
   el.progreso.max = duracion;
   el.progreso.value = actual;
+  // La parte avanzada de la barrita se pinta con esta variable (ver styles.css).
+  el.progreso.style.setProperty('--avance', `${duracion ? (actual / duracion) * 100 : 0}%`);
 }
 
 /* ---------- Retomar la última canción ---------- */
@@ -1678,7 +1850,7 @@ el.enviarPC.addEventListener('click', async () => {
     }
   }
   el.enviarPC.disabled = false;
-  el.enviarPC.textContent = '⇪ Enviar estas canciones a mi PC (para verlas en el cel)';
+  el.enviarPC.innerHTML = `${icono('subir', 20)} Enviar estas canciones a mi PC`;
   let mensaje = `${nuevas} enviadas a C:\\Music`;
   if (yaEstaban) mensaje += `, ${yaEstaban} ya estaban`;
   if (fallidas) mensaje += `, ${fallidas} fallaron`;
@@ -1707,7 +1879,8 @@ async function revisarActualizacion() {
         titulo: 'Hay una versión nueva de Muz15',
         subtitulo: 'Se instala encima de la que tienes: no pierdes tus canciones ni tus listas.',
         acciones: [{
-          texto: '⬇ Descargar e instalar',
+          icono: 'descargar',
+          texto: 'Descargar e instalar',
           // Se abre en el navegador, que baja la APK; luego tócala para instalar.
           alElegir: () => { location.href = DESCARGA_APK; },
         }],
@@ -1800,12 +1973,12 @@ el.ajustes.addEventListener('click', () => {
     titulo: 'Ajustes',
     subtitulo: version,
     acciones: [
-      { texto: `🎚 Ecualizador${estadoEq.activo ? `  ·  ${nombrePerfil()}` : ''}`, alElegir: abrirEcualizador },
-      { texto: `🛡 Volumen seguro  ·  ${volumenSeguro.activo ? `${volumenSeguro.db} dB` : 'desactivado'}`, alElegir: abrirVolumenSeguro },
-      { texto: `🎧 Modo eco${estadoEco.activo ? '  ·  activado' : ''}`, alElegir: abrirModoEco },
-      { texto: '⇄ Transición entre canciones', alElegir: elegirTransicion },
-      { texto: '🧹 Quitar canciones repetidas', alElegir: quitarRepetidas },
-      { texto: '⟳ Buscar actualizaciones', alElegir: buscarActualizaciones },
+      { icono: 'ecualizador', texto: `Ecualizador${estadoEq.activo ? `  ·  ${nombrePerfil()}` : ''}`, alElegir: abrirEcualizador },
+      { icono: 'escudo', texto: `Volumen seguro  ·  ${volumenSeguro.activo ? `${volumenSeguro.db} dB` : 'desactivado'}`, alElegir: abrirVolumenSeguro },
+      { icono: 'audifonos', texto: `Modo eco${estadoEco.activo ? '  ·  activado' : ''}`, alElegir: abrirModoEco },
+      { icono: 'transicion', texto: 'Transición entre canciones', alElegir: elegirTransicion },
+      { icono: 'repetidas', texto: 'Quitar canciones repetidas', alElegir: quitarRepetidas },
+      { icono: 'actualizar', texto: 'Buscar actualizaciones', alElegir: buscarActualizaciones },
     ],
   });
 });
@@ -1923,9 +2096,10 @@ function elegirTransicion() {
   const actual = reproductor.estado().fundido;
   abrirHoja({
     titulo: 'Transición entre canciones',
-    subtitulo: 'Las canciones vinculadas (⛓) siempre van pegadas, sin fundido.',
+    subtitulo: 'Las canciones vinculadas siempre van pegadas, sin fundido.',
     acciones: OPCIONES_FUNDIDO.map(({ segundos, texto }) => ({
-      texto: segundos === actual ? `${texto}  ✓` : texto,
+      icono: segundos === actual ? 'descargado' : 'transicion',
+      texto,
       alElegir: () => {
         reproductor.cambiarFundido(segundos);
         try { localStorage.setItem(CLAVE_FUNDIDO, String(segundos)); } catch { /* nada */ }
@@ -2034,8 +2208,8 @@ const QUE_SUENA = ['Bombo', 'Bajo', 'Cuerpo', 'Voz', 'Guitarra', 'Ataque', 'Plat
 function abrirModoEco() {
   if (!hayReproductorNativo) {
     abrirHoja({
-      titulo: '🎧 Modo eco',
-      subtitulo: 'Solo funciona en la APK nueva de Muz15 (con el reproductor nativo). Actualízala desde ⚙ → Buscar actualizaciones.',
+      titulo: 'Modo eco',
+      subtitulo: 'Solo funciona en la APK nueva de Muz15 (con el reproductor nativo). Actualízala desde Ajustes → Buscar actualizaciones.',
     });
     return;
   }
@@ -2170,7 +2344,7 @@ function abrirModoEco() {
 
   pintar();
   abrirHoja({
-    titulo: '🎧 Modo eco',
+    titulo: 'Modo eco',
     subtitulo: 'Mueve cada zona del sonido hacia un oído (o enciende la animación para que vaya y venga sola). Doble toque en una barra = al centro. Mejor con audífonos.',
     contenido: panel,
   });
@@ -2199,7 +2373,7 @@ try {
   }
 } catch { /* nada */ }
 if (calibracionReiniciada) {
-  setTimeout(() => mostrarAviso('Se reinició la calibración del volumen seguro (había quedado mal). Vuelve a calibrar en ⚙ si quieres.', 8000), 2500);
+  setTimeout(() => mostrarAviso('Se reinició la calibración del volumen seguro (había quedado mal). Vuelve a calibrar en Ajustes si quieres.', 8000), 2500);
 }
 
 function aplicarVolumenSeguro() {
@@ -2214,7 +2388,7 @@ function aplicarVolumenSeguro() {
  */
 function calibrarVolumenSeguro() {
   abrirHoja({
-    titulo: '📏 Calibrar con tus audífonos',
+    titulo: 'Calibrar con tus audífonos',
     subtitulo: `1) Deja el volumen seguro en ${volumenSeguro.db} dB. 2) Pon una canción fuerte con el volumen del cel al máximo. `
       + '3) Escribe cuántos dB marca tu app de audífonos (Soundcore, etc.).',
     entrada: {
@@ -2296,11 +2470,11 @@ function abrirVolumenSeguro() {
   pintar();
   const calibrado = volumenSeguro.referencia !== 100 ? ` Calibrado para tus audífonos (${volumenSeguro.referencia} dB al máximo).` : '';
   abrirHoja({
-    titulo: '🛡 Volumen seguro',
+    titulo: 'Volumen seguro',
     subtitulo: `Elige el volumen máximo. 85 dB o menos es lo recomendado para escuchar por horas.${calibrado}`,
     contenido: panel,
     acciones: [
-      { texto: '📏 Calibrar con mis audífonos', alElegir: calibrarVolumenSeguro },
+      { icono: 'regla', texto: 'Calibrar con mis audífonos', alElegir: calibrarVolumenSeguro },
       ...(volumenSeguro.referencia !== 100 ? [{
         texto: 'Quitar calibración',
         alElegir: () => {
@@ -2451,7 +2625,7 @@ if ('serviceWorker' in navigator) {
     abrirHoja({
       titulo: 'Hay mejoras nuevas en Muz15',
       subtitulo: 'Se aplican en un segundo (la canción se detiene).',
-      acciones: [{ texto: '⟳ Actualizar ahora', alElegir: aplicar }],
+      acciones: [{ icono: 'actualizar', texto: 'Actualizar ahora', alElegir: aplicar }],
     });
   });
 }

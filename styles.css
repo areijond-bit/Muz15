@@ -37,11 +37,16 @@
   --radio-redondo: 999px;
 
   /* Tamaños */
-  --portada-lista: 48px;
-  --portada-reproductor: 56px;
-  --boton-icono: 44px;              /* mínimo recomendado por Apple para tocar */
-  --boton-icono-grande: 56px;
-  --alto-reproductor: 96px;
+  --portada-lista: 52px;
+  --portada-reproductor: 44px;
+  --boton-icono: 44px;              /* mínimo recomendado para tocar con el dedo */
+  --boton-play: 56px;               /* el botón redondo verde de reproducir */
+  --alto-reproductor: 64px;         /* reproductor flotante de abajo */
+  --alto-navegacion: 64px;          /* barra de secciones de abajo */
+  --portada-cabecera: min(62vw, 260px); /* portada grande de un álbum o playlist */
+
+  /* Color de la portada (lo pone la app al abrir un álbum o al sonar una canción) */
+  --color-portada: #2a2a2a;
 }
 
 /* =========================================================
@@ -66,6 +71,10 @@ body {
 
 button { font: inherit; color: inherit; }
 
+/* Íconos dibujados (js/iconos.js) */
+[data-icono] { display: inline-flex; }
+.icono { display: block; flex-shrink: 0; }
+
 /* Que "hidden" siempre oculte, aunque el elemento tenga display: flex */
 [hidden] { display: none !important; }
 
@@ -75,25 +84,112 @@ button { font: inherit; color: inherit; }
 .cabecera {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: var(--espacio-m);
+  gap: var(--espacio-xs);
+  padding: var(--espacio-s) var(--espacio-m);
   padding-left: max(var(--espacio-m), env(safe-area-inset-left));
-  padding-right: max(var(--espacio-m), env(safe-area-inset-right));
+  padding-right: max(var(--espacio-s), env(safe-area-inset-right));
 }
 
 .marca {
-  margin: 0;
-  font-size: var(--texto-xl);
+  margin: 0 auto 0 0;   /* empuja los botones a la derecha */
+  font-size: var(--texto-l);
   font-weight: var(--peso-fuerte);
   letter-spacing: -0.02em;
 }
 
 .marca__numero { color: var(--color-acento); }
 
-.boton-icono--ajustes {
-  margin-right: auto;   /* queda pegado al logo; "Importar" se va a la derecha */
-  margin-left: var(--espacio-xs);
+/* Título grande de cada sección, con sus botones a la derecha */
+.encabezado-vista {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espacio-m);
+  margin: var(--espacio-s) 0 var(--espacio-m);
+}
+.encabezado-vista__titulo { margin: 0; font-size: var(--texto-xl); font-weight: var(--peso-fuerte); letter-spacing: -0.02em; }
+.encabezado-vista__meta { margin: var(--espacio-xs) 0 0; color: var(--color-texto-suave); font-size: var(--texto-s); }
+.acciones-lista { display: flex; align-items: center; gap: var(--espacio-s); }
+
+/* El botón redondo verde de reproducir */
+.boton-play {
+  width: var(--boton-play);
+  height: var(--boton-play);
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-acento);
+  color: var(--color-texto-sobre-acento);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.boton-play:active { transform: scale(0.94); }
+.boton-play:disabled { opacity: 0.4; }
+
+/* Botón redondo oscuro sobre la portada (volver, opciones) */
+.boton-circulo {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--color-texto);
+  cursor: pointer;
+}
+
+/* Botones de texto con forma de píldora (Agregar, Editar…) */
+.pildoras {
+  display: flex;
+  gap: var(--espacio-s);
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin-top: var(--espacio-m);
+}
+.pildoras::-webkit-scrollbar { display: none; }
+.pildora {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--espacio-s);
+  padding: 10px var(--espacio-m);
+  border: 0;
+  border-radius: var(--radio-redondo);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-texto);
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  cursor: pointer;
+}
+.pildora:active { background: rgba(255, 255, 255, 0.18); }
+.pildora--ancha { width: 100%; margin: var(--espacio-s) 0; }
+.pildora--acento { background: var(--color-acento); color: var(--color-texto-sobre-acento); }
+
+/* Buscador con lupa */
+.buscador-caja {
+  display: flex;
+  align-items: center;
+  gap: var(--espacio-s);
+  padding: 0 var(--espacio-m);
+  margin-bottom: var(--espacio-s);
+  border-radius: var(--radio-s);
+  background: var(--color-superficie-activa);
   color: var(--color-texto-suave);
+}
+.buscador-caja__entrada {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-texto);
+  font: inherit;
+  font-size: var(--texto-m); /* 16px o más: evita el zoom al escribir */
+  outline: none;
 }
 
 .boton {
@@ -126,34 +222,36 @@ button { font: inherit; color: inherit; }
 }
 
 /* =========================================================
-   PESTAÑAS
+   NAVEGACIÓN DE ABAJO
    ========================================================= */
-.pestanas {
-  display: flex;
-  gap: var(--espacio-s);
-  padding: 0 var(--espacio-m) var(--espacio-m);
-  overflow-x: auto;          /* si no caben en pantallas chicas, se deslizan */
-  scrollbar-width: none;
+.navegacion {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  min-height: var(--alto-navegacion);
+  padding-bottom: env(safe-area-inset-bottom);
+  /* Se desvanece hacia arriba sobre la lista */
+  background: linear-gradient(to top, var(--color-fondo) 70%, rgba(0, 0, 0, 0));
 }
-.pestanas::-webkit-scrollbar { display: none; }
-.pestana { flex-shrink: 0; }
 
 .pestana {
-  padding: var(--espacio-s) var(--espacio-m);
-  border: 1px solid var(--color-borde);
-  border-radius: var(--radio-redondo);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
   background: transparent;
   color: var(--color-texto-suave);
-  font-size: var(--texto-s);
-  font-weight: var(--peso-fuerte);
+  font-size: 11px;
   cursor: pointer;
 }
 
-.pestana--activa {
-  border-color: var(--color-texto);
-  background: var(--color-texto);
-  color: var(--color-fondo);
-}
+.pestana--activa { color: var(--color-texto); }
 
 /* =========================================================
    FORMULARIO DEL SERVIDOR
@@ -203,16 +301,17 @@ button { font: inherit; color: inherit; }
 
 .buscador { flex: 1; }
 
-/* Botón de descargar en cada canción del servidor */
+/* Botón a la derecha de una canción de Mi PC (descargar / ya descargada) */
 .cancion__accion {
   width: var(--boton-icono);
   height: var(--boton-icono);
   flex-shrink: 0;
+  display: grid;
+  place-items: center;
   border: 0;
-  border-radius: var(--radio-redondo);
+  border-radius: 50%;
   background: transparent;
   color: var(--color-texto-suave);
-  font-size: var(--texto-l);
   cursor: pointer;
 }
 
@@ -220,13 +319,21 @@ button { font: inherit; color: inherit; }
 
 .cancion__accion:disabled { opacity: 0.6; }
 
+/* Avisos: una tarjeta clara que flota sobre el reproductor */
 .aviso {
-  margin: 0 var(--espacio-m) var(--espacio-s);
-  padding: var(--espacio-s) var(--espacio-m);
-  border-radius: var(--radio-m);
-  background: var(--color-superficie);
-  color: var(--color-texto-suave);
+  position: fixed;
+  left: var(--espacio-m);
+  right: var(--espacio-m);
+  bottom: calc(var(--alto-navegacion) + var(--alto-reproductor) + env(safe-area-inset-bottom) + 16px);
+  z-index: 6;
+  margin: 0;
+  padding: 12px var(--espacio-m);
+  border-radius: var(--radio-s);
+  background: #e8e8e8;
+  color: #000;
   font-size: var(--texto-s);
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
 /* =========================================================
@@ -234,8 +341,8 @@ button { font: inherit; color: inherit; }
    ========================================================= */
 .contenido {
   padding: 0 var(--espacio-m);
-  /* Deja espacio para que el reproductor fijo no tape la última canción */
-  padding-bottom: calc(var(--alto-reproductor) + env(safe-area-inset-bottom) + var(--espacio-l));
+  /* Deja espacio para que el reproductor y la navegación no tapen la última canción */
+  padding-bottom: calc(var(--alto-reproductor) + var(--alto-navegacion) + env(safe-area-inset-bottom) + var(--espacio-l));
 }
 
 .lista {
@@ -247,27 +354,25 @@ button { font: inherit; color: inherit; }
 .cancion {
   display: flex;
   align-items: center;
-  gap: var(--espacio-m);
-  padding: var(--espacio-s);
-  border-radius: var(--radio-m);
+  gap: 12px;
+  padding: 6px 0;
+  border-radius: var(--radio-s);
   cursor: pointer;
 }
 
-.cancion:active,
-.cancion--sonando { background: var(--color-superficie-activa); }
+.cancion:active { background: var(--color-superficie-activa); }
 
 .cancion--sonando .cancion__titulo { color: var(--color-acento); }
 
-/* Agarradera para arrastrar (⋮⋮) */
+/* Agarradera para arrastrar (discreta) */
 .cancion__arrastre {
-  width: 24px;
-  margin-right: calc(var(--espacio-s) * -1);
+  width: 20px;
+  margin-right: -6px;
   flex-shrink: 0;
   align-self: stretch;
   display: grid;
   place-items: center;
-  color: var(--color-texto-suave);
-  letter-spacing: -3px;
+  color: #4d4d4d;
   cursor: grab;
   touch-action: none;   /* que el dedo arrastre la fila y no la página */
   user-select: none;
@@ -278,7 +383,6 @@ button { font: inherit; color: inherit; }
   position: relative;
   z-index: 1;
   background: var(--color-superficie-activa);
-  outline: 1px solid var(--color-acento);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
 }
 
@@ -288,9 +392,9 @@ button { font: inherit; color: inherit; }
   width: var(--portada-lista);
   height: var(--portada-lista);
   flex-shrink: 0;
-  border-radius: var(--radio-s);
+  border-radius: 4px;
   object-fit: cover;
-  background: var(--color-superficie);
+  background: var(--color-superficie-activa);
 }
 
 .cancion__info { flex: 1; min-width: 0; }
@@ -303,29 +407,35 @@ button { font: inherit; color: inherit; }
   text-overflow: ellipsis;
 }
 
-.cancion__titulo { font-weight: var(--peso-fuerte); }
+.cancion__titulo { font-size: var(--texto-m); font-weight: 500; }
 
 .cancion__artista {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
   color: var(--color-texto-suave);
   font-size: var(--texto-s);
 }
+.cancion__artista .icono { color: var(--color-acento); }
+.cancion__artista span { overflow: hidden; text-overflow: ellipsis; }
 
+/* Botón de opciones (los tres puntos) */
 .cancion__borrar {
   width: var(--boton-icono);
   height: var(--boton-icono);
   flex-shrink: 0;
+  display: grid;
+  place-items: center;
   border: 0;
-  border-radius: var(--radio-redondo);
+  border-radius: 50%;
   background: transparent;
   color: var(--color-texto-suave);
-  font-size: var(--texto-l);
   cursor: pointer;
 }
 
-.cancion__borrar:active { color: var(--color-peligro); }
-
 .vacio {
-  margin-top: 20vh;
+  margin-top: 12vh;
   text-align: center;
   color: var(--color-texto-suave);
 }
@@ -346,28 +456,95 @@ button { font: inherit; color: inherit; }
 }
 
 /* =========================================================
-   REPRODUCTOR (fijo abajo)
+   ÁLBUM / PLAYLIST ABIERTO
+   ========================================================= */
+.cabecera-lista {
+  /* Se sale de los márgenes para que el degradado ocupe todo el ancho */
+  margin: calc(var(--espacio-s) * -1) calc(var(--espacio-m) * -1) var(--espacio-m);
+  padding: var(--espacio-s) var(--espacio-m) var(--espacio-m);
+  background: linear-gradient(to bottom, var(--color-portada) 0%, var(--color-fondo) 100%);
+}
+
+.cabecera-lista__barra {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--espacio-s);
+}
+
+.mosaico {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: var(--portada-cabecera);
+  aspect-ratio: 1;
+  margin: 0 auto var(--espacio-l);
+  overflow: hidden;
+  border-radius: 4px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  background: var(--color-superficie-activa);
+}
+.mosaico img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mosaico--una { grid-template-columns: 1fr; }
+
+/* La portada chiquita en mosaico de un álbum/playlist en la lista */
+.mosaico--chico {
+  width: var(--portada-lista);
+  height: var(--portada-lista);
+  margin: 0;
+  flex-shrink: 0;
+  box-shadow: none;
+}
+
+.cabecera-lista__nombre {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.cabecera-lista__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: var(--espacio-s) 0 0;
+  color: var(--color-texto-suave);
+  font-size: var(--texto-s);
+}
+
+.cabecera-lista__acciones {
+  display: flex;
+  align-items: center;
+  gap: var(--espacio-s);
+  margin-top: var(--espacio-m);
+}
+.cabecera-lista__estado { display: flex; align-items: center; gap: 6px; color: var(--color-acento); font-size: var(--texto-s); }
+.espaciador { flex: 1; }
+
+/* =========================================================
+   REPRODUCTOR FLOTANTE (encima de la navegación)
    ========================================================= */
 .reproductor {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 8px;
+  right: 8px;
+  bottom: calc(var(--alto-navegacion) + env(safe-area-inset-bottom));
+  z-index: 6;
   display: flex;
   align-items: center;
-  gap: var(--espacio-m);
+  gap: 10px;
   min-height: var(--alto-reproductor);
-  padding: var(--espacio-m);
-  padding-bottom: calc(var(--espacio-m) + env(safe-area-inset-bottom));
-  background: var(--color-superficie);
-  border-top: 1px solid var(--color-borde);
+  padding: 8px 8px 10px;
+  border-radius: 8px;
+  /* Toma el color de la portada de lo que suena */
+  background: color-mix(in srgb, var(--color-portada) 70%, #000);
+  transition: background 0.4s;
+  overflow: hidden;
 }
 
 .reproductor__portada {
   width: var(--portada-reproductor);
   height: var(--portada-reproductor);
   flex-shrink: 0;
-  border-radius: var(--radio-s);
+  border-radius: 4px;
   object-fit: cover;
 }
 
@@ -381,23 +558,33 @@ button { font: inherit; color: inherit; }
   text-overflow: ellipsis;
 }
 
-.reproductor__titulo { font-weight: var(--peso-fuerte); }
+.reproductor__titulo { font-size: var(--texto-s); font-weight: var(--peso-fuerte); }
 
 .reproductor__artista {
-  color: var(--color-texto-suave);
-  font-size: var(--texto-s);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: var(--texto-xs);
 }
 
+/* La barrita de progreso, pegada abajo del reproductor */
 .reproductor__progreso {
-  width: 100%;
-  margin: var(--espacio-s) 0 0;
-  accent-color: var(--color-acento);
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 2px;
+  height: 3px;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--color-texto) var(--avance, 0%), rgba(255, 255, 255, 0.25) var(--avance, 0%));
+  cursor: pointer;
 }
+.reproductor__progreso::-webkit-slider-thumb { -webkit-appearance: none; width: 3px; height: 3px; background: transparent; }
+.reproductor__progreso::-moz-range-thumb { width: 3px; height: 3px; border: 0; background: transparent; }
 
 .reproductor__controles {
   display: flex;
   align-items: center;
-  gap: var(--espacio-xs);
 }
 
 .boton-icono {
@@ -406,17 +593,10 @@ button { font: inherit; color: inherit; }
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: var(--radio-redondo);
+  border-radius: 50%;
   background: transparent;
-  font-size: var(--texto-l);
+  color: var(--color-texto);
   cursor: pointer;
-}
-
-.boton-icono--grande {
-  width: var(--boton-icono-grande);
-  height: var(--boton-icono-grande);
-  background: var(--color-acento);
-  color: var(--color-texto-sobre-acento);
 }
 
 .boton-icono:disabled { opacity: 0.4; }
@@ -465,7 +645,9 @@ button { font: inherit; color: inherit; }
 }
 
 .hoja__accion {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: var(--espacio-m);
   width: 100%;
   padding: var(--espacio-m);
   border: 0;
@@ -480,7 +662,8 @@ button { font: inherit; color: inherit; }
 
 .hoja__accion--peligro { color: var(--color-peligro); font-weight: var(--peso-fuerte); }
 
-.hoja__accion:last-child { color: var(--color-texto-suave); text-align: center; }
+.hoja__accion:last-child { color: var(--color-texto-suave); justify-content: center; }
+.hoja__accion .icono { color: var(--color-texto-suave); }
 
 /* Editor de canción */
 .editor__portada {
@@ -525,7 +708,7 @@ button { font: inherit; color: inherit; }
   color: var(--color-texto-suave);
   font-size: var(--texto-s);
 }
-.refrescar__icono { font-size: var(--texto-l); color: var(--color-acento); transition: transform 0.15s; }
+.refrescar__icono { color: var(--color-acento); transition: transform 0.15s; }
 .refrescar--listo .refrescar__icono { transform: rotate(180deg); }
 .refrescar--cargando .refrescar__icono { animation: girar 0.8s linear infinite; }
 @keyframes girar { to { transform: rotate(360deg); } }
@@ -533,11 +716,9 @@ button { font: inherit; color: inherit; }
 /* Títulos de sección (Listas: "En este teléfono" / "En Mi PC") */
 .seccion {
   margin: var(--espacio-l) 0 var(--espacio-s);
-  color: var(--color-texto-suave);
-  font-size: var(--texto-s);
+  color: var(--color-texto);
+  font-size: var(--texto-l);
   font-weight: var(--peso-fuerte);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 #listas-pc .buscador { margin-bottom: var(--espacio-s); }
@@ -724,9 +905,19 @@ button { font: inherit; color: inherit; }
 /* Aleatorio: gris apagado, color de acento encendido */
 .boton-icono--modo { color: var(--color-texto-suave); }
 .boton-icono--modo[aria-pressed="true"] { color: var(--color-acento); }
+/* Puntito debajo del aleatorio encendido */
+.boton-icono--modo { position: relative; }
+.boton-icono--modo[aria-pressed="true"]::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-acento);
+}
 
-/* En pantallas de teléfono el reproductor se apila en dos filas */
-@media (max-width: 440px) {
-  .reproductor { flex-wrap: wrap; }
-  .reproductor__controles { width: 100%; justify-content: center; }
+/* En pantallas angostas, el reproductor flotante muestra solo reproducir/pausa y siguiente */
+@media (max-width: 360px) {
+  #anterior { display: none; }
 }

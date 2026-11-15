@@ -30,70 +30,97 @@
   <script type="module" src="js/app.js"></script>
 </head>
 <body>
+  <!-- Los <span data-icono="…"> se llenan con íconos dibujados (js/iconos.js) -->
   <header class="cabecera">
     <h1 class="marca">Muz<span class="marca__numero">15</span></h1>
-    <button id="ajustes" class="boton-icono boton-icono--ajustes" aria-label="Ajustes">⚙</button>
-    <label class="boton boton--primario">
-      + Importar
+    <button id="ajustes" class="boton-icono" aria-label="Ajustes"><span data-icono="ajustes"></span></button>
+    <label class="boton-icono" aria-label="Importar canciones del teléfono">
+      <span data-icono="subir"></span>
       <input id="importar" type="file" accept="audio/*,video/mp4,video/quicktime,.mp3,.m4a,.aac,.wav,.mp4,.m4v,.mov" multiple hidden>
     </label>
   </header>
-
-  <nav class="pestanas" aria-label="Biblioteca">
-    <button class="pestana pestana--activa" data-vista="telefono">Descargadas</button>
-    <button class="pestana" data-vista="listas">Álbumes</button>
-    <button class="pestana" data-vista="playlists">Playlists</button>
-    <button class="pestana" data-vista="servidor">Mi PC</button>
-  </nav>
 
   <p id="aviso" class="aviso" role="status" hidden></p>
 
   <main class="contenido">
     <!-- Canciones guardadas en el teléfono -->
     <section id="vista-telefono">
+      <div class="encabezado-vista">
+        <div>
+          <h2 class="encabezado-vista__titulo">Descargadas</h2>
+          <p id="espacio" class="encabezado-vista__meta"></p>
+        </div>
+        <div class="acciones-lista">
+          <button id="aleatorio" class="boton-icono boton-icono--modo" aria-pressed="false" aria-label="Modo aleatorio: apagado"><span data-icono="aleatorio"></span></button>
+          <button id="reproducir-descargadas" class="boton-play" aria-label="Reproducir todo"><span data-icono="play" data-tamano="28"></span></button>
+        </div>
+      </div>
       <ul id="lista" class="lista"></ul>
       <div id="vacio" class="vacio">
         <p class="vacio__titulo">Todavía no hay canciones</p>
-        <p class="vacio__texto">Toca <strong>+ Importar</strong> y elige archivos MP3, M4A o MP4,<br>o descárgalas desde la pestaña <strong>Mi PC</strong>.<br>Se guardan en el teléfono y suenan sin internet.</p>
+        <p class="vacio__texto">Toca <strong>+</strong> arriba para importar archivos MP3, M4A o MP4,<br>o descárgalas desde <strong>Mi PC</strong>.<br>Se guardan en el teléfono y suenan sin internet.</p>
       </div>
-      <p id="espacio" class="espacio"></p>
       <!-- Solo aparece al usar Muz15 en la PC (con tools/servidor.mjs) -->
-      <button id="enviar-pc" class="boton boton--secundario boton--ancho" hidden>⇪ Enviar estas canciones a mi PC (para verlas en el cel)</button>
+      <button id="enviar-pc" class="pildora pildora--ancha" hidden><span data-icono="subir" data-tamano="20"></span> Enviar estas canciones a mi PC</button>
     </section>
 
-    <!-- Listas (playlists) hechas con canciones descargadas -->
+    <!-- Álbumes (en tu PC) y Playlists (solo del teléfono) -->
     <section id="vista-listas" hidden>
       <!-- Aparece al deslizar hacia abajo estando arriba del todo -->
-      <div id="refrescar" class="refrescar" aria-live="polite"><span class="refrescar__icono">⟳</span><span id="refrescar-texto">Desliza para actualizar</span></div>
+      <div id="refrescar" class="refrescar" aria-live="polite"><span class="refrescar__icono" data-icono="actualizar"></span><span id="refrescar-texto">Desliza para actualizar</span></div>
       <div id="indice-listas">
-        <button id="nueva-lista" class="boton boton--primario">+ Nueva lista</button>
-        <h2 id="titulo-listas-telefono" class="seccion">Álbumes en este teléfono</h2>
+        <div class="encabezado-vista">
+          <h2 id="titulo-vista-listas" class="encabezado-vista__titulo">Álbumes</h2>
+          <button id="nueva-lista" class="boton-icono" aria-label="Crear"><span data-icono="agregar"></span></button>
+        </div>
+        <h3 id="titulo-listas-telefono" class="seccion">En este teléfono</h3>
         <ul id="listas" class="lista"></ul>
-        <p id="sin-listas" class="espacio">Crea una lista y agrégale canciones desde <strong>Descargadas</strong> con el botón ⋯.</p>
+        <p id="sin-listas" class="espacio"></p>
 
-        <!-- Todas tus playlists guardadas en tu servidor: las mismas en el cel y en la PC -->
+        <!-- Todos tus álbumes guardados en tu servidor: los mismos en el cel y en la PC -->
         <div id="listas-pc" hidden>
-          <h2 class="seccion">En Mi PC (todos tus álbumes)</h2>
-          <input id="buscar-listas" class="campo__entrada buscador" type="search" placeholder="Buscar álbum por nombre" autocomplete="off">
+          <h3 class="seccion">En Mi PC</h3>
+          <label class="buscador-caja">
+            <span data-icono="buscar" data-tamano="20"></span>
+            <input id="buscar-listas" class="buscador-caja__entrada" type="search" placeholder="Buscar álbum" autocomplete="off">
+          </label>
           <p id="estado-listas-pc" class="espacio"></p>
           <ul id="listas-servidor" class="lista"></ul>
         </div>
       </div>
 
+      <!-- Un álbum o playlist abierto -->
       <div id="detalle-lista" hidden>
-        <div class="encabezado-lista">
-          <button id="volver-listas" class="boton-icono" aria-label="Volver a las listas">‹</button>
-          <h2 id="nombre-lista" class="encabezado-lista__nombre"></h2>
-          <button id="opciones-lista" class="boton-icono" aria-label="Opciones de la lista">⋯</button>
-          <button id="reproducir-lista" class="boton-icono boton-icono--grande" aria-label="Reproducir la lista">▶</button>
+        <div id="cabecera-lista" class="cabecera-lista">
+          <div class="cabecera-lista__barra">
+            <button id="volver-listas" class="boton-circulo" aria-label="Volver"><span data-icono="atras"></span></button>
+            <button id="opciones-lista" class="boton-circulo" aria-label="Opciones"><span data-icono="mas"></span></button>
+          </div>
+          <div id="mosaico" class="mosaico"></div>
+          <h2 id="nombre-lista" class="cabecera-lista__nombre"></h2>
+          <p id="meta-lista" class="cabecera-lista__meta"></p>
+          <div class="cabecera-lista__acciones">
+            <span id="estado-lista" class="cabecera-lista__estado"></span>
+            <span class="espaciador"></span>
+            <button id="aleatorio-lista" class="boton-icono boton-icono--modo" aria-pressed="false" aria-label="Aleatorio"><span data-icono="aleatorio" data-tamano="28"></span></button>
+            <button id="reproducir-lista" class="boton-play" aria-label="Reproducir"><span data-icono="play" data-tamano="28"></span></button>
+          </div>
+          <div class="pildoras">
+            <button id="agregar-a-lista" class="pildora"><span data-icono="agregar" data-tamano="20"></span> Agregar</button>
+            <button id="editar-lista" class="pildora"><span data-icono="editar" data-tamano="20"></span> Editar</button>
+          </div>
         </div>
         <ul id="canciones-lista" class="lista"></ul>
-        <p id="lista-vacia" class="espacio">Esta lista está vacía. En <strong>Descargadas</strong>, toca ⋯ en una canción → <strong>Agregar a una lista</strong>.</p>
+        <p id="lista-vacia" class="espacio">Vacía por ahora. Toca <strong>Agregar</strong> para meterle canciones.</p>
       </div>
     </section>
 
     <!-- Canciones de tu servidor Navidrome -->
     <section id="vista-servidor" hidden>
+      <div class="encabezado-vista">
+        <h2 class="encabezado-vista__titulo">Mi PC</h2>
+        <button id="recargar-servidor" class="boton-icono" aria-label="Actualizar"><span data-icono="actualizar"></span></button>
+      </div>
       <form id="form-servidor" class="formulario" hidden>
         <p class="formulario__texto">Conéctate a tu servidor Navidrome. Necesitas Tailscale encendido en este teléfono.</p>
         <label class="campo">
@@ -113,11 +140,11 @@
       </form>
 
       <div id="biblioteca-servidor" hidden>
-        <div class="barra-servidor">
-          <input id="buscar" class="campo__entrada buscador" type="search" placeholder="Buscar canción, artista o álbum" autocomplete="off">
-          <button id="recargar-servidor" class="boton-icono" aria-label="Actualizar">⟳</button>
-        </div>
-        <button id="descargar-todas" class="boton boton--primario boton--ancho boton--descargar-todas" hidden></button>
+        <label class="buscador-caja">
+          <span data-icono="buscar" data-tamano="20"></span>
+          <input id="buscar" class="buscador-caja__entrada" type="search" placeholder="Canción, artista o álbum" autocomplete="off">
+        </label>
+        <button id="descargar-todas" class="pildora pildora--ancha" hidden></button>
         <p id="estado-servidor" class="espacio"></p>
         <ul id="lista-servidor" class="lista"></ul>
         <button id="desconectar" class="boton boton--discreto">Desconectar servidor</button>
@@ -125,27 +152,31 @@
     </section>
   </main>
 
+  <!-- Reproductor flotante -->
   <footer class="reproductor" id="reproductor">
     <img id="portada" class="reproductor__portada" src="icons/portada.png" alt="">
     <div class="reproductor__info">
       <p id="titulo" class="reproductor__titulo">Nada sonando</p>
       <p id="artista" class="reproductor__artista">Elige una canción</p>
-      <input id="progreso" class="reproductor__progreso" type="range" min="0" max="0" step="0.1" value="0" aria-label="Progreso">
     </div>
     <div class="reproductor__controles">
-      <button id="aleatorio" class="boton-icono boton-icono--modo" aria-pressed="false" aria-label="Modo aleatorio: apagado">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>
-        </svg>
-      </button>
-      <button id="anterior" class="boton-icono" aria-label="Anterior">⏮</button>
-      <button id="alternar" class="boton-icono boton-icono--grande" aria-label="Reproducir">▶</button>
-      <button id="siguiente" class="boton-icono" aria-label="Siguiente">⏭</button>
+      <button id="anterior" class="boton-icono" aria-label="Anterior"><span data-icono="anterior"></span></button>
+      <button id="alternar" class="boton-icono boton-icono--principal" aria-label="Reproducir"><span data-icono="play" data-tamano="30"></span></button>
+      <button id="siguiente" class="boton-icono" aria-label="Siguiente"><span data-icono="siguiente"></span></button>
     </div>
+    <input id="progreso" class="reproductor__progreso" type="range" min="0" max="0" step="0.1" value="0" aria-label="Progreso">
     <!-- Dos <audio>: mientras uno suena, el otro ya tiene cargada la siguiente canción -->
     <!-- crossorigin: necesario para que el ecualizador pueda procesar lo que llega de tu PC -->
     <audio id="audio" preload="auto" crossorigin="anonymous"></audio>
     <audio id="audio2" preload="auto" crossorigin="anonymous"></audio>
   </footer>
+
+  <!-- Navegación de abajo -->
+  <nav class="navegacion" aria-label="Secciones">
+    <button class="pestana pestana--activa" data-vista="telefono"><span data-icono="telefono"></span><span>Descargadas</span></button>
+    <button class="pestana" data-vista="listas"><span data-icono="album"></span><span>Álbumes</span></button>
+    <button class="pestana" data-vista="playlists"><span data-icono="playlist"></span><span>Playlists</span></button>
+    <button class="pestana" data-vista="servidor"><span data-icono="pc"></span><span>Mi PC</span></button>
+  </nav>
 </body>
 </html>
