@@ -11,7 +11,7 @@ import { crearReproductor } from './reproductor.js';
 import { crearReproductorNativo } from './reproductor-nativo.js';
 import {
   hayReproductorNativo, Reproductor, rutaAudio, rutaPortada, urlDe, trasladar, liberarCopias,
-  borrar as borrarArchivo,
+  borrar as borrarArchivo, leer as leerArchivo,
 } from './archivos.js';
 import * as servidor from './servidor.js';
 import { abrirHoja, confirmar } from './hoja.js';
@@ -210,13 +210,14 @@ el.importar.addEventListener('change', async () => {
   if (!archivos.length) return;
 
   let guardadas = 0;
+  const nuevas = [];
   for (const [i, archivo] of archivos.entries()) {
     mostrarAviso(`Importando ${i + 1} de ${archivos.length}: ${archivo.name}`);
     try {
       const buffer = await archivo.arrayBuffer();
       const meta = leerMetadatos(buffer, archivo.name);
       if (!meta.portada && esVideo(archivo)) meta.portada = await portadaDeVideo(archivo);
-      await guardarCancion({
+      const cancion = {
         id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
         titulo: meta.titulo,
         artista: meta.artista,
@@ -225,7 +226,9 @@ el.importar.addEventListener('change', async () => {
         tipo: tipoParaGuardar(archivo),
         nombreArchivo: archivo.name,
         agregada: Date.now() + i, // + i para mantener el orden aunque sea el mismo milisegundo
-      }, buffer);
+      };
+      await guardarCancion(cancion, buffer);
+      nuevas.push(cancion);
       guardadas++;
     } catch (error) {
       console.error('Error importando', archivo.name, error);
@@ -236,6 +239,7 @@ el.importar.addEventListener('change', async () => {
   mostrarAviso(`${guardadas} ${guardadas === 1 ? 'canción guardada' : 'canciones guardadas'} en el teléfono.`, 3000);
   pedirAlmacenamientoPersistente();
   await recargarLista();
+  subirImportadas(nuevas); // en segundo plano
 });
 
 const EXTENSIONES_VIDEO = ['mp4', 'm4v', 'mov'];
@@ -582,6 +586,20 @@ function editarCancion(cancion) {
       }
     }
     await recargarLista();
+    // Como el título de un video: si la canción está en tu servidor, el cambio es para todos.
+    if (servidor.configuracion()) {
+      try {
+        await asegurarBibliotecaServidor();
+        for (const id of editadas) {
+          const editada = porId(id);
+          const enServidor = editada && idEnServidor(editada);
+          if (enServidor) await servidor.guardarDatoGlobal(enServidor, editada);
+        }
+        datosGlobalesCambiada = null; // que la próxima revisión lo vuelva a leer
+      } catch (error) {
+        console.warn('No se pudo guardar el cambio para todos:', error.message);
+      }
+    }
     // Los álbumes (en tu PC) que tienen estas canciones se vuelven a subir: así el
     // título/artista nuevo les llega a todos los que tengan ese álbum.
     for (const lista of listas) {
@@ -720,7 +738,41 @@ async function borrarLista(id) {
 }
 
 async function asegurarBibliotecaServidor() {
-  if (!cancionesServidor.length) cancionesServidor = await servidor.listarCanciones();
+  if (!cancionesServidor.length) cancionesServidor = servidor.conDatosGlobales(await servidor.listarCanciones(), datosGlobales);
+}
+
+/* ---------- Títulos y artistas para todos (como en YouTube) ---------- */
+// Si alguien edita una canción que está en tu servidor, el cambio se guarda allá y
+// todos los dispositivos lo aplican: en Mi PC y en sus copias descargadas.
+
+let datosGlobales = {};
+let datosGlobalesCambiada = null;
+
+async function sincronizarDatosGlobales() {
+  const { cambiada, datos } = await servidor.leerDatosGlobales();
+  if (cambiada === datosGlobalesCambiada) return;
+  datosGlobalesCambiada = cambiada;
+  datosGlobales = datos;
+  // Mi PC
+  cancionesServidor = servidor.conDatosGlobales(cancionesServidor, datos);
+  // Tus copias descargadas (y las importadas que son la misma canción)
+  let cambiadas = 0;
+  for (const cancion of cancionesLocales) {
+    const d = datos[idEnServidor(cancion)];
+    if (!d) continue;
+    const titulo = d.t || cancion.titulo;
+    const artista = d.a || cancion.artista;
+    const album = d.al ?? cancion.album ?? '';
+    if (titulo !== cancion.titulo || artista !== cancion.artista || album !== (cancion.album ?? '')) {
+      await actualizarCancion({ ...cancion, titulo, artista, album });
+      cambiadas++;
+    }
+  }
+  if (cambiadas) {
+    await recargarLista();
+    mostrarAviso(`Se actualizaron los datos de ${cambiadas} ${cambiadas === 1 ? 'canción' : 'canciones'}.`, 3000);
+  }
+  if (cancionesServidor.length) pintarListaServidor();
 }
 
 /** El id en el servidor de una canción del teléfono (o de su gemela con el mismo título). */
@@ -736,29 +788,39 @@ function idEnServidor(cancion) {
 // Canciones de un álbum que todavía no están en tu servidor: en la PC se envían
 // solas a C:\Music y reintentamos hasta que Navidrome las detecte (y las
 // convierta, si eran video). Unos minutos como máximo.
-const MAXIMO_REINTENTOS = 8;
-const ESPERA_REINTENTO_MS = 40000;
+// Como YouTube: subes y en segundos está para todos. La PC deja la canción lista al
+// recibirla, le pedimos a Navidrome que escanee ya, y revisamos cada pocos segundos
+// hasta que aparezca (máximo unos 3 minutos).
+const MAXIMO_REINTENTOS = 45;
+const ESPERA_REINTENTO_MS = 4000;
 const reintentos = new Map(); // id de lista → cuántas veces se reintentó
 const subiendo = new Set();   // listas que se están subiendo ahora mismo
 
+/**
+ * @returns {Promise<{faltan: number, esperar: boolean}>} esperar = todavía no subas el
+ *          álbum (para no mandarlo a medias muchas veces); se reintenta solo.
+ */
 async function enviarFaltantesAPC(lista) {
   const faltan = cancionesDe(lista).filter((c) => !idEnServidor(c));
-  if (!faltan.length || !puedeEnviarAPC) return 0;
+  if (!faltan.length || !puedeEnviarAPC) return { faltan: faltan.length, esperar: false };
   const veces = reintentos.get(lista.id) ?? 0;
   if (veces === 0) {
-    mostrarAviso(`"${lista.nombre}": enviando ${faltan.length} canciones a tu PC para que estén en todos tus dispositivos…`, 5000);
+    mostrarAviso(`"${lista.nombre}": subiendo ${faltan.length} ${faltan.length === 1 ? 'canción' : 'canciones'} para todos tus dispositivos…`, 5000);
     for (const cancion of faltan) {
       try { await enviarCancionAPC(cancion); } catch (error) { console.warn('No se pudo enviar', cancion.titulo, error.message); }
     }
   }
+  // Pedirle a Navidrome que las busque ya (al principio y cada ~20 s por si acaso).
+  if (veces % 5 === 0) await servidor.escanear().catch(() => {});
   if (veces < MAXIMO_REINTENTOS) {
     reintentos.set(lista.id, veces + 1);
     setTimeout(() => {
       cancionesServidor = []; // volver a leer tu biblioteca: ya deberían estar
       subirLista(lista.id);
     }, ESPERA_REINTENTO_MS);
+    return { faltan: faltan.length, esperar: true };
   }
-  return faltan.length;
+  return { faltan: faltan.length, esperar: false }; // ya no esperamos más: se sube lo que haya
 }
 
 async function subirLista(id) {
@@ -768,8 +830,12 @@ async function subirLista(id) {
   subiendo.add(id);
   try {
     await asegurarBibliotecaServidor();
-    const faltan = await enviarFaltantesAPC(lista);
-    if (!faltan) reintentos.delete(id);
+    const { faltan, esperar } = await enviarFaltantesAPC(lista);
+    if (esperar) return; // en unos segundos se vuelve a intentar, ya con las canciones
+    if (!faltan) {
+      if (reintentos.has(id)) mostrarAviso(`"${lista.nombre}" ya está completo en todos tus dispositivos.`, 4000);
+      reintentos.delete(id);
+    }
     let idsCanciones = cancionesDe(lista).map(idEnServidor).filter(Boolean);
     // Los vínculos del álbum, con los ids del servidor.
     const vinculos = {};
@@ -823,7 +889,7 @@ async function subirLista(id) {
 // tienes en este dispositivo cambió en otro lado (canciones, orden, nombre,
 // vínculos). Si sí, se bajan las canciones nuevas y el álbum se pone al día.
 
-const REVISAR_ALBUMES_CADA_MS = 60000;
+const REVISAR_ALBUMES_CADA_MS = 15000; // cada 15 s mientras la app está a la vista
 let revisandoAlbumes = false;
 
 async function actualizarAlbumesSolos() {
@@ -832,6 +898,7 @@ async function actualizarAlbumesSolos() {
   try {
     const enServidor = await servidor.listarPlaylists();
     await asegurarBibliotecaServidor();
+    await sincronizarDatosGlobales(); // títulos/artistas que alguien cambió para todos
     for (const lista of listas) {
       if (esPlaylist(lista) || !lista.idServidor) continue;
       // En la PC: si el álbum tiene canciones que tu servidor no tiene, se envían.
@@ -1509,6 +1576,7 @@ el.formServidor.addEventListener('submit', async (evento) => {
     mostrarAviso('Conectado a tu servidor.', 3000);
     abrirServidor();
     ofrecerRecuperacion();
+    revisarEnvioAPC(); // ya puede subir canciones a tu PC
   } catch (error) {
     mostrarAviso(error.message, 6000);
   } finally {
@@ -1534,7 +1602,7 @@ el.recargarServidor.addEventListener('click', () => cargarServidor());
 async function cargarServidor() {
   el.estadoServidor.textContent = 'Cargando tu biblioteca…';
   try {
-    cancionesServidor = await servidor.listarCanciones();
+    cancionesServidor = servidor.conDatosGlobales(await servidor.listarCanciones(), datosGlobales);
     pintarListaServidor();
   } catch (error) {
     el.estadoServidor.textContent = error.message;
@@ -1804,20 +1872,79 @@ el.progreso.addEventListener('change', () => {
 // para que aparezcan en el celular, en la pestaña Mi PC. Solo existe en la PC,
 // porque lo atiende tools/servidor.mjs.
 
-let puedeEnviarAPC = false; // true solo en la PC con tools/servidor.mjs
-fetch('api/estado')
-  .then((respuesta) => (respuesta.ok ? respuesta.json() : null))
-  .then((estado) => {
-    puedeEnviarAPC = Boolean(estado?.enviarAPC);
-    el.enviarPC.hidden = !puedeEnviarAPC;
-  })
-  .catch(() => { /* en el celular no existe: el botón se queda oculto */ });
+// Desde el cel (como YouTube): lo mismo, pero por Tailscale, en <tu servidor>/muz15/,
+// entrando con tu usuario de Mi PC. Lo que importas se sube solo para todos.
+let puedeEnviarAPC = false;
+let baseAPC = 'api/'; // en la PC: aquí mismo
+
+/** Dirección de la PC para "api/…" (en el cel, con tu llave de Navidrome). */
+function urlAPC(metodo, parametros = {}) {
+  const consulta = new URLSearchParams(parametros);
+  if (baseAPC !== 'api/') {
+    const { u, t, s } = servidor.credenciales() ?? {};
+    if (u) Object.entries({ u, t, s }).forEach(([k, v]) => consulta.set(k, v));
+  }
+  return `${baseAPC}${metodo}?${consulta}`;
+}
+
+async function revisarEnvioAPC() {
+  const preguntar = async (base) => {
+    baseAPC = base;
+    const respuesta = await fetch(urlAPC('estado'), { cache: 'no-store' });
+    return respuesta.ok && Boolean((await respuesta.json())?.enviarAPC);
+  };
+  puedeEnviarAPC = await preguntar('api/').catch(() => false);
+  const enLaPC = puedeEnviarAPC;
+  const credenciales = servidor.credenciales();
+  if (!puedeEnviarAPC && credenciales) {
+    puedeEnviarAPC = await preguntar(`${credenciales.url.replace(/\/+$/, '')}/muz15/api/`).catch(() => false);
+  }
+  if (!puedeEnviarAPC) baseAPC = 'api/';
+  el.enviarPC.hidden = !puedeEnviarAPC;
+  el.enviarPC.innerHTML = `${icono('subir', 20)} ${enLaPC ? 'Enviar estas canciones a mi PC' : 'Subir mis canciones a Mi PC'}`;
+  return puedeEnviarAPC;
+}
+revisarEnvioAPC();
+
+/** Las que importaste en el cel se suben solas a tu PC, para todos. */
+async function subirImportadas(canciones) {
+  if (!canciones.length || !(puedeEnviarAPC || await revisarEnvioAPC()) || baseAPC === 'api/') return;
+  let nuevas = 0;
+  for (const [i, cancion] of canciones.entries()) {
+    mostrarAviso(`Subiendo a Mi PC ${i + 1} de ${canciones.length}: ${cancion.titulo}`);
+    try {
+      if (await enviarCancionAPC(cancion) === 'nueva') nuevas++;
+    } catch (error) {
+      console.warn('No se pudo subir', cancion.titulo, error.message);
+    }
+  }
+  await servidor.escanear().catch(() => {});
+  cancionesServidor = [];
+  mostrarAviso(`Listo: ${nuevas} ${nuevas === 1 ? 'canción subida' : 'canciones subidas'} a Mi PC. Ya le aparecen a todos.`, 5000);
+}
+
+/** El audio de una canción del teléfono (en la APK vive como archivo). */
+async function audioParaSubir(cancion) {
+  try {
+    return await obtenerAudio(cancion);
+  } catch (error) {
+    if (hayReproductorNativo && cancion.enArchivo) return leerArchivo(rutaAudio(cancion));
+    throw error;
+  }
+}
 
 /** Copia una canción a C:\Music. @returns {'nueva' | 'ya'} */
 async function enviarCancionAPC(cancion) {
-  const respuesta = await fetch(`api/subir?nombre=${encodeURIComponent(nombreParaPC(cancion))}`, {
+  // Con el título/artista de Muz15: la PC los escribe dentro del archivo.
+  const parametros = new URLSearchParams({
+    nombre: nombreParaPC(cancion),
+    titulo: cancion.titulo,
+    artista: ARTISTAS_DESCONOCIDOS.has(cancion.artista) ? '' : cancion.artista,
+    album: cancion.album || '',
+  });
+  const respuesta = await fetch(urlAPC('subir', Object.fromEntries(parametros)), {
     method: 'POST',
-    body: await obtenerAudio(cancion),
+    body: await audioParaSubir(cancion),
   });
   const resultado = await respuesta.json();
   if (!respuesta.ok) throw new Error(resultado.error);
@@ -1850,11 +1977,12 @@ el.enviarPC.addEventListener('click', async () => {
     }
   }
   el.enviarPC.disabled = false;
-  el.enviarPC.innerHTML = `${icono('subir', 20)} Enviar estas canciones a mi PC`;
-  let mensaje = `${nuevas} enviadas a C:\\Music`;
+  await revisarEnvioAPC(); // vuelve a poner el texto del botón
+  await servidor.escanear().catch(() => {});
+  let mensaje = `${nuevas} enviadas a Mi PC`;
   if (yaEstaban) mensaje += `, ${yaEstaban} ya estaban`;
   if (fallidas) mensaje += `, ${fallidas} fallaron`;
-  mostrarAviso(`${mensaje}. En un par de minutos aparecen en tu cel, en la pestaña Mi PC.`, 8000);
+  mostrarAviso(`${mensaje}. En unos segundos aparecen en todos tus dispositivos, en Mi PC.`, 8000);
 });
 
 /* ---------- Actualizaciones de la APK ---------- */

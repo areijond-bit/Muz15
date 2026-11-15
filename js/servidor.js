@@ -220,14 +220,70 @@ export async function leerComentario(idServidor) {
 }
 
 /** Crea (si hace falta) una playlist vacía y le pone un comentario. Devuelve su id. */
-export async function guardarComentario({ idServidor, nombre, comentario }) {
+export async function guardarComentario({ idServidor, nombre, comentario, publico = false }) {
   let id = idServidor;
   if (!id) {
     const json = await llamar('createPlaylist', { name: nombre });
     id = json.playlist?.id ?? (await listarPlaylists()).find((p) => p.nombre === nombre)?.idServidor;
   }
-  await llamar('updatePlaylist', { playlistId: id, comment: comentario, public: 'false' });
+  await llamar('updatePlaylist', { playlistId: id, comment: comentario, public: String(publico) });
   return id;
+}
+
+/* ---------- Datos de las canciones para todos (como el título de un video) ---------- */
+// Cuando alguien edita el título, artista o álbum de una canción que está en tu
+// servidor, se guarda aquí (una lista oculta y pública) y TODOS los dispositivos lo
+// aplican: en Mi PC y en sus copias descargadas.  { idCancion: { t, a, al, c } }
+
+const NOMBRE_DATOS = 'Muz15 · Datos de canciones';
+
+// Cada usuario guarda sus ediciones en SU lista oculta (Navidrome solo deja al dueño
+// cambiarla); al leer se juntan las de todos y gana el cambio más reciente.
+async function leerUnaLista(lista) {
+  try { return JSON.parse(await leerComentario(lista.idServidor)) ?? {}; } catch { return {}; }
+}
+
+/** @returns {Promise<{idServidor: string|null, cambiada: string, datos: object}>} idServidor = la tuya */
+export async function leerDatosGlobales() {
+  const listas = (await listarPlaylists()).filter((p) => p.nombre === NOMBRE_DATOS);
+  const datos = {};
+  for (const lista of listas) {
+    for (const [id, dato] of Object.entries(await leerUnaLista(lista))) {
+      if (!datos[id] || (dato.c ?? 0) > (datos[id].c ?? 0)) datos[id] = dato;
+    }
+  }
+  return {
+    idServidor: listas.find((p) => p.mio)?.idServidor ?? null,
+    cambiada: listas.map((p) => p.cambiada ?? '').sort().join('|'),
+    datos,
+  };
+}
+
+/** Guarda la edición de una canción para todos. */
+export async function guardarDatoGlobal(idCancion, { titulo, artista, album }) {
+  const mia = (await listarPlaylists()).find((p) => p.nombre === NOMBRE_DATOS && p.mio);
+  const datos = mia ? await leerUnaLista(mia) : {};
+  datos[idCancion] = { t: titulo, a: artista, al: album ?? '', c: Date.now() };
+  await guardarComentario({ idServidor: mia?.idServidor ?? null, nombre: NOMBRE_DATOS, comentario: JSON.stringify(datos), publico: true });
+}
+
+/** Aplica los datos globales a canciones del servidor (las de Mi PC). */
+export function conDatosGlobales(canciones, datos) {
+  return canciones.map((c) => {
+    const d = datos[c.idServidor];
+    return d ? { ...c, titulo: d.t || c.titulo, artista: d.a || c.artista, album: d.al ?? c.album } : c;
+  });
+}
+
+/** Usuario y llave (sin contraseña) para que la PC sepa que eres tú al subir canciones. */
+export function credenciales() {
+  const datos = actual();
+  return datos ? { u: datos.usuario, t: datos.token, s: datos.sal, url: datos.url } : null;
+}
+
+/** Le pide a Navidrome que busque canciones nuevas ya (sin esperar a que lo note solo). */
+export async function escanear() {
+  await llamar('startScan', {});
 }
 
 export async function borrarPlaylist(idServidor) {

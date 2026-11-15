@@ -123,3 +123,13 @@ export async function trasladar(canciones, { obtenerAudio, actualizarCancion, li
   }
   return pendientes.length;
 }
+
+/**
+ * Lee un archivo de Muz15 como Blob (para subirlo a tu PC). La página no puede
+ * abrir file:// directo, pero la APK lo sirve en /_capacitor_file_/….
+ */
+export async function leer(ruta) {
+  const respuesta = await fetch(Capacitor.convertFileSrc(await urlDe(ruta)));
+  if (!respuesta.ok) throw new Error(`No se pudo leer ${ruta}`);
+  return respuesta.blob();
+}
