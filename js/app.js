@@ -221,7 +221,8 @@ async function recargarLista() {
 // vacío (por la razón que sea), Muz15 ofrece bajarlo todo de nuevo con un toque.
 
 const PREFIJO_RESPALDO = 'Muz15 · Descargas';
-const esRespaldo = (album) => album.nombre.startsWith(PREFIJO_RESPALDO);
+// Las listas internas de Muz15 (respaldo, diagnóstico) empiezan con "Muz15 · " y no se muestran.
+const esRespaldo = (album) => album.nombre.startsWith('Muz15 · ');
 const modeloTelefono = navigator.userAgent.match(/Android [^;)]+; ([^;)]+?)(?: Build|\))/)?.[1]?.trim();
 const nombreRespaldo = `${PREFIJO_RESPALDO} (${[modeloTelefono, esApk ? 'APK' : 'navegador'].filter(Boolean).join(' · ')})`;
 let temporizadorRespaldo;
@@ -244,11 +245,57 @@ async function respaldarDescargas() {
   }
 }
 
+/* ---------- Registro de diagnóstico ---------- */
+// Cada vez que se abre Muz15 anota en tu servidor (lista oculta "Muz15 · Diagnóstico")
+// qué encontró guardado en el teléfono. Sirve para averiguar por qué un teléfono
+// pierde sus descargas: se ve en qué apertura bajaron a 0 y qué más cambió.
+
+const CLAVE_INSTALACION = 'muz15-instalacion';
+const MAXIMO_REGISTROS = 40;
+
+async function registrarDiagnostico() {
+  if (!servidor.configuracion()) return;
+  try {
+    // Un id que vive en el almacenamiento: si cambia, el teléfono borró los datos de la app.
+    let instalacion = localStorage.getItem(CLAVE_INSTALACION);
+    const instalacionNueva = !instalacion;
+    if (!instalacion) {
+      instalacion = Math.random().toString(36).slice(2, 8);
+      localStorage.setItem(CLAVE_INSTALACION, instalacion);
+    }
+    const espacio = await espacioUsado();
+    const registro = {
+      t: new Date().toISOString(),
+      inst: instalacion,
+      instNueva: instalacionNueva,
+      apk: esApk ? (versionApk?.nombre ?? 'sí') : 'no',
+      app: await versionWeb(),
+      url: location.href,
+      canciones: cancionesLocales.length,
+      listas: listas.length,
+      persistente: await navigator.storage?.persisted?.().catch(() => null) ?? null,
+      usadoMB: espacio ? Math.round(espacio.usado / 1048576) : null,
+      totalMB: espacio ? Math.round(espacio.total / 1048576) : null,
+      bases: await indexedDB.databases?.().then((d) => d.map((x) => `${x.name}@${x.version}`)).catch(() => null) ?? null,
+    };
+    const nombre = `Muz15 · Diagnóstico (${[modeloTelefono, esApk ? 'APK' : 'navegador'].filter(Boolean).join(' · ')})`;
+    const existente = (await servidor.listarPlaylists()).find((p) => p.nombre === nombre);
+    let historial = [];
+    if (existente) {
+      try { historial = JSON.parse(await servidor.leerComentario(existente.idServidor)); } catch { historial = []; }
+    }
+    historial = [...historial, registro].slice(-MAXIMO_REGISTROS);
+    await servidor.guardarComentario({ idServidor: existente?.idServidor, nombre, comentario: JSON.stringify(historial) });
+  } catch (error) {
+    console.warn('No se pudo guardar el diagnóstico:', error.message);
+  }
+}
+
 /** Si este teléfono no tiene canciones pero hay un respaldo en tu PC, ofrece recuperarlas. */
 async function ofrecerRecuperacion() {
   if (cancionesLocales.length || !servidor.configuracion()) return;
   try {
-    const respaldos = (await servidor.listarPlaylists()).filter((p) => esRespaldo(p) && p.total > 0);
+    const respaldos = (await servidor.listarPlaylists()).filter((p) => p.nombre.startsWith(PREFIJO_RESPALDO) && p.total > 0);
     if (!respaldos.length) return;
     // El de este mismo dispositivo primero; si no, el más grande.
     respaldos.sort((a, b) => (b.nombre === nombreRespaldo) - (a.nombre === nombreRespaldo) || b.total - a.total);
@@ -1365,7 +1412,7 @@ async function revisarActualizacion() {
   }
   return false;
 }
-revisarActualizacion();
+const revisarActualizacionLista = revisarActualizacion(); // también deja anotada la versión de la APK
 
 /** La versión de la app guardada en el teléfono (ej. "v14"). */
 async function versionWeb() {
@@ -1724,9 +1771,11 @@ if ('serviceWorker' in navigator) {
 pedirAlmacenamientoPersistente();
 
 recargarLista()
-  .then(() => {
+  .then(async () => {
     ofrecerRecuperacion();
     avisarSiEsLaVersionDeChrome();
+    await revisarActualizacionLista; // para anotar la versión de la APK
+    registrarDiagnostico();
   })
   .catch((error) => {
     console.error(error);

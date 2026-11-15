@@ -197,6 +197,23 @@ export async function guardarPlaylist({ idServidor, nombre, idsCanciones, vincul
   return id;
 }
 
+/** El comentario tal cual de una playlist (para el registro de diagnóstico). */
+export async function leerComentario(idServidor) {
+  const { playlist } = await llamar('getPlaylist', { id: idServidor });
+  return playlist.comment ?? '';
+}
+
+/** Crea (si hace falta) una playlist vacía y le pone un comentario. Devuelve su id. */
+export async function guardarComentario({ idServidor, nombre, comentario }) {
+  let id = idServidor;
+  if (!id) {
+    const json = await llamar('createPlaylist', { name: nombre });
+    id = json.playlist?.id ?? (await listarPlaylists()).find((p) => p.nombre === nombre)?.idServidor;
+  }
+  await llamar('updatePlaylist', { playlistId: id, comment: comentario, public: 'false' });
+  return id;
+}
+
 export async function borrarPlaylist(idServidor) {
   await llamar('deletePlaylist', { id: idServidor });
 }
