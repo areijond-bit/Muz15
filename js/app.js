@@ -25,6 +25,8 @@ const el = {
   alternar: $('alternar'),
   siguiente: $('siguiente'),
   audio: $('audio'),
+  audio2: $('audio2'),
+  ajustes: $('ajustes'),
   pestanas: document.querySelectorAll('.pestana'),
   vistaTelefono: $('vista-telefono'),
   vistaServidor: $('vista-servidor'),
@@ -66,7 +68,8 @@ let cancionesServidor = [];   // toda la biblioteca del servidor
 let visiblesServidor = [];    // las que pasan el filtro de búsqueda
 const descargando = new Set(); // idServidor de las que se están bajando ahora
 
-const reproductor = crearReproductor(el.audio, {
+const reproductor = crearReproductor([el.audio, el.audio2], {
+  alProgreso: pintarProgreso,
   obtenerFuente,
   alCambiar: pintarReproductor,
   alFallar: (mensaje) => mostrarAviso(mensaje, 5000),
@@ -874,12 +877,47 @@ el.anterior.addEventListener('click', () => reproductor.anterior());
 
 // Barra de progreso: se mueve sola y también sirve para saltar a otra parte.
 let arrastrando = false;
-el.audio.addEventListener('loadedmetadata', () => { el.progreso.max = el.audio.duration || 0; });
-el.audio.addEventListener('timeupdate', () => { if (!arrastrando) el.progreso.value = el.audio.currentTime; });
+function pintarProgreso({ actual, duracion }) {
+  if (arrastrando) return;
+  el.progreso.max = duracion;
+  el.progreso.value = actual;
+}
 el.progreso.addEventListener('input', () => { arrastrando = true; });
 el.progreso.addEventListener('change', () => {
-  el.audio.currentTime = Number(el.progreso.value);
+  reproductor.irA(Number(el.progreso.value));
   arrastrando = false;
+});
+
+/* ---------- Ajustes ---------- */
+
+// Transición entre canciones: 0 = sin pausa (cambio instantáneo); si no, segundos de fundido.
+const CLAVE_FUNDIDO = 'muz15-fundido';
+const OPCIONES_FUNDIDO = [
+  { segundos: 0, texto: 'Sin pausa (pegadas)' },
+  { segundos: 3, texto: 'Fundido de 3 s' },
+  { segundos: 6, texto: 'Fundido de 6 s' },
+  { segundos: 10, texto: 'Fundido de 10 s' },
+];
+
+try {
+  const guardado = Number(localStorage.getItem(CLAVE_FUNDIDO));
+  if (guardado > 0) reproductor.cambiarFundido(guardado);
+} catch { /* nada */ }
+
+el.ajustes.addEventListener('click', () => {
+  const actual = reproductor.estado().fundido;
+  abrirHoja({
+    titulo: 'Transición entre canciones',
+    subtitulo: 'Las canciones vinculadas (⛓) siempre van pegadas, sin fundido.',
+    acciones: OPCIONES_FUNDIDO.map(({ segundos, texto }) => ({
+      texto: segundos === actual ? `${texto}  ✓` : texto,
+      alElegir: () => {
+        reproductor.cambiarFundido(segundos);
+        try { localStorage.setItem(CLAVE_FUNDIDO, String(segundos)); } catch { /* nada */ }
+        mostrarAviso(`Transición: ${texto.toLowerCase()}`, 2500);
+      },
+    })),
+  });
 });
 
 /* ---------- Avisos ---------- */

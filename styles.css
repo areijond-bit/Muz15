@@ -90,6 +90,12 @@ button { font: inherit; color: inherit; }
 
 .marca__numero { color: var(--color-acento); }
 
+.boton-icono--ajustes {
+  margin-right: auto;   /* queda pegado al logo; "Importar" se va a la derecha */
+  margin-left: var(--espacio-xs);
+  color: var(--color-texto-suave);
+}
+
 .boton {
   display: inline-flex;
   align-items: center;

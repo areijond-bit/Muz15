@@ -1,33 +1,47 @@
-// reproductor.js — Controla el <audio> y la pantalla de bloqueo / Bluetooth (MediaSession).
+// reproductor.js — Controla el audio y la pantalla de bloqueo / Bluetooth (MediaSession).
 //
-// MediaSession es lo que hace que el título y la portada salgan en la pantalla
-// bloqueada, en el Control Center y en la pantalla del carro, y que los botones
-// del volante (siguiente / anterior) lleguen a la app.
+// Sin cortes entre canciones: usamos DOS <audio>, como las dos bandejas de un DJ.
+// Mientras una suena, la otra ya tiene cargada la siguiente canción. Al terminar
+// se cambia de bandeja al instante (o con fundido, si está activado), en vez de
+// esperar a leer el archivo del teléfono.
 //
-// Registramos play, pause, previoustrack, nexttrack y seekto (la barra de tiempo
-// que se puede arrastrar). NO registramos seekforward / seekbackward: en iOS, si
-// existen, los botones del carro pueden convertirse en "±10 segundos" en vez de
-// "canción siguiente / anterior".
+// MediaSession hace que el título y la portada salgan en la pantalla bloqueada,
+// en la notificación y en la pantalla del carro, y que los botones del volante
+// (siguiente / anterior) lleguen a la app. NO registramos seekforward /
+// seekbackward: si existen, los botones del carro pueden convertirse en
+// "±10 segundos" en vez de "canción siguiente / anterior".
 
 const PORTADA_POR_DEFECTO = new URL('../icons/portada.png', import.meta.url).href;
 
 // Si la canción lleva más de esto, "anterior" vuelve al inicio en vez de cambiar.
 const SEGUNDOS_PARA_REINICIAR = 3;
 
+// Cada cuánto se ajusta el volumen durante un fundido.
+const PASO_FUNDIDO_MS = 50;
+
 /**
- * @param {HTMLAudioElement} audio
+ * @param {[HTMLAudioElement, HTMLAudioElement]} bandejas  dos <audio> vacíos
  * @param {object} opciones
  * @param {(cancion) => Promise<{audio: string, portada: string | null}>} opciones.obtenerFuente
  *        devuelve las direcciones del audio y la portada: blob: si está en el teléfono,
  *        https: si suena desde el servidor
  * @param {(estado) => void} opciones.alCambiar  se llama cada vez que algo cambia, para pintar la UI
+ * @param {(tiempo: {actual: number, duracion: number}) => void} opciones.alProgreso  mientras suena
  * @param {(mensaje: string) => void} opciones.alFallar  cuando una canción no se puede cargar
  */
-export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) {
+export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgreso, alFallar }) {
   let lista = [];
   let indice = -1;
-  let urlAudio = null;   // dirección del audio actual
-  let urlPortada = null; // dirección de la portada actual
+
+  // La bandeja que suena ("activa") y la que espera con la siguiente ("libre").
+  let activa = bandejas[0];
+  let libre = bandejas[1];
+  // Qué canción y qué direcciones tiene cargada cada bandeja.
+  const cargada = new Map(bandejas.map((b) => [b, { indice: -1, id: null, audio: null, portada: null }]));
+
+  // Segundos de fundido entre canciones (0 = cambio instantáneo).
+  let fundido = 0;
+  let fundiendo = null; // { anterior: bandeja que se apaga, temporizador }
 
   // Orden en que suenan las canciones: [0, 1, 2...] en modo continuo,
   // revuelto en modo aleatorio. "posicion" es dónde vamos dentro de ese orden.
@@ -35,14 +49,20 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
   let orden = [];
   let posicion = -1;
 
+  // Para descartar cargas viejas si cambias de canción muy rápido.
+  let turno = 0;
+
+  const portadaActual = () => cargada.get(activa).portada ?? PORTADA_POR_DEFECTO;
   const estado = () => ({
     cancion: lista[indice] ?? null,
     indice,
-    sonando: !audio.paused,
+    sonando: !activa.paused,
     aleatorio,
-    urlPortada: urlPortada ?? PORTADA_POR_DEFECTO,
+    fundido,
+    urlPortada: portadaActual(),
   });
   const avisar = () => alCambiar(estado());
+  const avisarProgreso = () => alProgreso?.({ actual: activa.currentTime, duracion: activa.duration || 0 });
 
   /* ---------- Orden (continuo o aleatorio) ---------- */
 
@@ -89,54 +109,152 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
     posicion = orden.indexOf(indice);
   }
 
-  /* ---------- Cambiar de canción ---------- */
-
-  async function reproducir(nuevoIndice) {
-    if (!lista.length) return;
-    // Damos la vuelta: después de la última viene la primera, y al revés.
-    indice = (nuevoIndice + lista.length) % lista.length;
-    if (orden.length !== lista.length) armarOrden();
-    posicion = orden.indexOf(indice);
-    const cancion = lista[indice];
-
-    liberarURLs();
-    try {
-      ({ audio: urlAudio, portada: urlPortada } = await obtenerFuente(cancion));
-    } catch (error) {
-      console.error(error);
-      alFallar?.(error.message);
-      return;
-    }
-
-    audio.src = urlAudio;
-    actualizarMediaSession(cancion);
-    avisar();
-
-    try {
-      await audio.play();
-    } catch (error) {
-      // iOS bloquea play() si no viene de un toque del usuario. No es grave:
-      // la canción queda cargada y el siguiente toque en ▶ la arranca.
-      console.warn('No se pudo reproducir automáticamente:', error.message);
-    }
+  /** Qué canción toca después (sin moverse), o -1 si no se sabe todavía. */
+  function proximoIndice() {
+    if (!lista.length || posicion < 0) return -1;
+    if (posicion + 1 < orden.length) return orden[posicion + 1];
+    return aleatorio ? -1 : orden[0]; // en aleatorio se revuelve de nuevo al dar la vuelta
   }
 
-  // Las direcciones blob: ocupan memoria hasta que se liberan; las https: no.
-  function liberarURLs() {
-    for (const url of [urlAudio, urlPortada]) {
+  /* ---------- Bandejas ---------- */
+
+  // Vacía una bandeja y libera la memoria de sus direcciones blob:.
+  function vaciar(bandeja) {
+    const datos = cargada.get(bandeja);
+    bandeja.pause();
+    bandeja.removeAttribute('src');
+    bandeja.load();
+    for (const url of [datos.audio, datos.portada]) {
       if (url?.startsWith('blob:')) URL.revokeObjectURL(url);
     }
-    urlAudio = urlPortada = null;
+    cargada.set(bandeja, { indice: -1, id: null, audio: null, portada: null });
+  }
+
+  async function cargar(bandeja, i) {
+    const cancion = lista[i];
+    const fuente = await obtenerFuente(cancion);
+    vaciar(bandeja);
+    cargada.set(bandeja, { indice: i, id: cancion.id, ...fuente });
+    bandeja.volume = 1;
+    bandeja.preload = 'auto';
+    bandeja.src = fuente.audio;
+    bandeja.load();
+  }
+
+  /** Deja la siguiente canción cargada en la bandeja libre. */
+  async function prepararSiguiente() {
+    if (fundiendo) return; // la libre todavía se está apagando
+    const i = proximoIndice();
+    const enLibre = cargada.get(libre);
+    if (i < 0 || (enLibre.indice === i && enLibre.id === lista[i]?.id)) return;
+    const miTurno = turno;
+    try {
+      await cargar(libre, i);
+    } catch (error) {
+      console.warn('No se pudo precargar la siguiente:', error.message);
+      return;
+    }
+    if (miTurno !== turno) vaciar(libre); // mientras tanto cambiaste de canción
+  }
+
+  /* ---------- Cambiar de canción ---------- */
+
+  /**
+   * @param {number} nuevoIndice
+   * @param {object} [como]
+   * @param {boolean} [como.conFundido]  true si viene del final natural de la canción
+   */
+  async function reproducir(nuevoIndice, { conFundido = false } = {}) {
+    if (!lista.length) return;
+    // Damos la vuelta: después de la última viene la primera, y al revés.
+    nuevoIndice = (nuevoIndice + lista.length) % lista.length;
+    const miTurno = ++turno;
+    terminarFundido();
+
+    const anterior = activa;
+    const enLibre = cargada.get(libre);
+    const yaCargada = enLibre.indice === nuevoIndice && enLibre.id === lista[nuevoIndice].id;
+
+    if (yaCargada) {
+      // Cambio de bandeja: la siguiente ya estaba lista, así que suena al instante.
+      [activa, libre] = [libre, activa];
+    } else {
+      try {
+        await cargar(libre, nuevoIndice);
+      } catch (error) {
+        console.error(error);
+        alFallar?.(error.message);
+        return;
+      }
+      if (miTurno !== turno) return; // otra canción se pidió mientras cargaba
+      [activa, libre] = [libre, activa];
+    }
+
+    indice = nuevoIndice;
+    if (orden.length !== lista.length) armarOrden();
+    posicion = orden.indexOf(indice);
+
+    activa.currentTime = 0;
+    const vincularSinFundido = lista[cargada.get(anterior).indice]?.siguienteFija === lista[indice].id;
+    if (conFundido && fundido > 0 && !anterior.paused && !vincularSinFundido) {
+      empezarFundido(anterior);
+    } else {
+      vaciar(anterior);
+    }
+
+    actualizarMediaSession(lista[indice]);
+    avisar();
+    avisarProgreso();
+
+    try {
+      await activa.play();
+    } catch (error) {
+      // El navegador bloquea play() si no viene de un toque del usuario. No es
+      // grave: la canción queda cargada y el siguiente toque en ▶ la arranca.
+      console.warn('No se pudo reproducir automáticamente:', error.message);
+    }
+    if (!fundiendo) prepararSiguiente();
+  }
+
+  /* ---------- Fundido (crossfade) ---------- */
+
+  // Sube el volumen de la nueva mientras baja el de la anterior.
+  function empezarFundido(anterior) {
+    const inicio = performance.now();
+    const duracionMs = fundido * 1000;
+    activa.volume = 0;
+    fundiendo = {
+      anterior,
+      temporizador: setInterval(() => {
+        // Usamos el tiempo real transcurrido: si el teléfono retrasa el
+        // temporizador (pantalla apagada), el fundido igual termina a tiempo.
+        const avance = Math.min((performance.now() - inicio) / duracionMs, 1);
+        activa.volume = avance;
+        anterior.volume = 1 - avance;
+        if (avance >= 1) terminarFundido();
+      }, PASO_FUNDIDO_MS),
+    };
+  }
+
+  function terminarFundido() {
+    if (!fundiendo) return;
+    clearInterval(fundiendo.temporizador);
+    vaciar(fundiendo.anterior);
+    activa.volume = 1;
+    fundiendo = null;
+    prepararSiguiente();
   }
 
   /* ---------- Controles ---------- */
 
   function alternar() {
     if (indice === -1) return reproducir(0);
-    return audio.paused ? audio.play() : audio.pause();
+    if (activa.paused) return activa.play();
+    terminarFundido();
+    activa.pause();
   }
 
-  function siguiente() {
+  function siguiente({ conFundido = false } = {}) {
     if (!lista.length) return;
     let nueva = posicion + 1;
     if (nueva >= orden.length) {
@@ -144,12 +262,12 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
       nueva = 0;
       if (aleatorio) armarOrden(-1);
     }
-    return reproducir(orden[nueva]);
+    return reproducir(orden[nueva], { conFundido });
   }
 
   function anterior() {
-    if (audio.currentTime > SEGUNDOS_PARA_REINICIAR) {
-      audio.currentTime = 0;
+    if (activa.currentTime > SEGUNDOS_PARA_REINICIAR) {
+      activa.currentTime = 0;
       return;
     }
     if (!lista.length) return;
@@ -157,14 +275,26 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
   }
 
   function irA(segundos) {
-    audio.currentTime = Math.min(Math.max(segundos, 0), audio.duration || 0);
+    activa.currentTime = Math.min(Math.max(segundos, 0), activa.duration || 0);
+  }
+
+  // Con fundido, la siguiente arranca X segundos antes de que acabe la actual.
+  function vigilarFinal(evento) {
+    if (evento.target !== activa || fundido <= 0 || fundiendo || activa.paused) return;
+    const restante = activa.duration - activa.currentTime;
+    const proxima = lista[proximoIndice()];
+    const vinculada = proxima && lista[indice]?.siguienteFija === proxima.id;
+    // Las vinculadas no se funden: van pegadas tal cual, como una transición.
+    if (!vinculada && Number.isFinite(restante) && activa.duration > fundido * 2 && restante <= fundido) {
+      siguiente({ conFundido: true });
+    }
   }
 
   /* ---------- MediaSession ---------- */
 
   function actualizarMediaSession(cancion) {
     if (!('mediaSession' in navigator)) return;
-    const portada = urlPortada ?? PORTADA_POR_DEFECTO;
+    const portada = portadaActual();
     navigator.mediaSession.metadata = new MediaMetadata({
       title: cancion.titulo,
       artist: cancion.artista,
@@ -179,10 +309,10 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
   function registrarControles() {
     if (!('mediaSession' in navigator)) return;
     const acciones = {
-      play: () => audio.play(),
-      pause: () => audio.pause(),
+      play: () => activa.play(),
+      pause: () => alternar(),
       previoustrack: anterior,
-      nexttrack: siguiente,
+      nexttrack: () => siguiente(),
       // Arrastrar la barra de tiempo en la pantalla bloqueada o la notificación.
       seekto: (detalles) => irA(detalles.seekTime),
       // Quitamos explícitamente estos para que el carro muestre siguiente / anterior.
@@ -203,44 +333,55 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
   // llamarlo cada segundo: el sistema avanza la barra solo mientras suena.
   function actualizarPosicion() {
     if (!navigator.mediaSession?.setPositionState) return;
-    const duracion = audio.duration;
+    const duracion = activa.duration;
     if (!Number.isFinite(duracion) || duracion <= 0) return;
     try {
       navigator.mediaSession.setPositionState({
         duration: duracion,
-        playbackRate: audio.playbackRate || 1,
-        position: Math.min(audio.currentTime, duracion),
+        playbackRate: activa.playbackRate || 1,
+        position: Math.min(activa.currentTime, duracion),
       });
     } catch (error) {
       console.warn('No se pudo actualizar la barra de tiempo:', error.message);
     }
   }
 
-  /* ---------- Eventos del <audio> ---------- */
+  /* ---------- Eventos de las dos bandejas ---------- */
+  // Solo cuentan los de la bandeja activa; la libre está cargando en silencio.
 
-  audio.addEventListener('play', () => {
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-    actualizarPosicion();
-    avisar();
-  });
-  audio.addEventListener('pause', () => {
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
-    actualizarPosicion();
-    avisar();
-  });
-  audio.addEventListener('loadedmetadata', actualizarPosicion);
-  audio.addEventListener('seeked', actualizarPosicion);
-  audio.addEventListener('ratechange', actualizarPosicion);
-  audio.addEventListener('ended', siguiente);
-  audio.addEventListener('error', () => {
-    if (!audio.getAttribute('src')) return; // la quitamos a propósito
-    console.error('Error del <audio>:', audio.error);
-    const delServidor = urlAudio?.startsWith('http');
-    alFallar?.(delServidor
-      ? 'No se pudo escuchar desde el servidor. ¿Está prendida la PC y Tailscale activado?'
-      : 'No se pudo reproducir este archivo.');
-    avisar();
-  });
+  const soloActiva = (fn) => (evento) => { if (evento.target === activa) fn(evento); };
+
+  for (const bandeja of bandejas) {
+    bandeja.addEventListener('play', soloActiva(() => {
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+      actualizarPosicion();
+      avisar();
+    }));
+    bandeja.addEventListener('pause', soloActiva(() => {
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+      actualizarPosicion();
+      avisar();
+    }));
+    bandeja.addEventListener('loadedmetadata', soloActiva(() => { actualizarPosicion(); avisarProgreso(); }));
+    bandeja.addEventListener('seeked', soloActiva(actualizarPosicion));
+    bandeja.addEventListener('ratechange', soloActiva(actualizarPosicion));
+    bandeja.addEventListener('timeupdate', soloActiva((evento) => { avisarProgreso(); vigilarFinal(evento); }));
+    bandeja.addEventListener('ended', soloActiva(() => siguiente()));
+    bandeja.addEventListener('error', (evento) => {
+      if (!bandeja.getAttribute('src')) return; // la vaciamos a propósito
+      if (evento.target !== activa) {
+        // Falló la precarga: se intentará de nuevo al llegar a esa canción.
+        cargada.set(bandeja, { indice: -1, id: null, audio: null, portada: null });
+        return;
+      }
+      console.error('Error del <audio>:', bandeja.error);
+      const delServidor = cargada.get(activa).audio?.startsWith('http');
+      alFallar?.(delServidor
+        ? 'No se pudo escuchar desde el servidor. ¿Está prendida la PC y Tailscale activado?'
+        : 'No se pudo reproducir este archivo.');
+      avisar();
+    });
+  }
 
   registrarControles();
 
@@ -250,11 +391,12 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
       lista = nuevaLista;
       indice = desde;
       armarOrden();
+      vaciar(libre); // lo precargado era de la lista anterior
       return reproducir(desde);
     },
     /**
-     * Pone la versión nueva de las canciones (después de editar títulos o
-     * vínculos) sin cortar la que suena.
+     * Pone la versión nueva de las canciones (después de editar títulos,
+     * vínculos u orden) sin cortar la que suena.
      */
     refrescar(canciones) {
       const actual = lista[indice];
@@ -263,6 +405,8 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
         // Es la misma lista que suena (quizá reacomodada): tomamos su nuevo orden.
         lista = canciones;
         indice = actual ? lista.findIndex((c) => c.id === actual.id) : -1;
+        const enActiva = cargada.get(activa);
+        if (enActiva.id) cargada.set(activa, { ...enActiva, indice });
       } else {
         const nuevas = new Map(canciones.map((c) => [c.id, c]));
         lista = lista.map((c) => nuevas.get(c.id) ?? c);
@@ -270,33 +414,43 @@ export function crearReproductor(audio, { obtenerFuente, alCambiar, alFallar }) 
       armarOrden();
       if (lista[indice]) actualizarMediaSession(lista[indice]);
       avisar();
+      prepararSiguiente();
     },
     /** Activa o quita el modo aleatorio sin cortar la canción actual. */
     cambiarAleatorio(activar) {
       aleatorio = activar;
       armarOrden();
       avisar();
+      prepararSiguiente();
+    },
+    /** Segundos de fundido entre canciones (0 = sin pausa, cambio instantáneo). */
+    cambiarFundido(segundos) {
+      fundido = segundos;
+      avisar();
     },
     /** Saca una canción borrada de la lista; si era la que sonaba, la detiene. */
     quitar(id) {
-      const posicion = lista.findIndex((c) => c.id === id);
-      if (posicion === -1) return;
-      if (posicion === indice) {
-        audio.pause();
-        audio.removeAttribute('src');
-        audio.load();
-        liberarURLs();
+      const lugar = lista.findIndex((c) => c.id === id);
+      if (lugar === -1) return;
+      terminarFundido();
+      if (lugar === indice) {
+        vaciar(activa);
         indice = -1;
-      } else if (posicion < indice) {
+      } else if (lugar < indice) {
         indice--;
       }
+      vaciar(libre);
       lista = lista.filter((c) => c.id !== id);
+      const enActiva = cargada.get(activa);
+      if (enActiva.id) cargada.set(activa, { ...enActiva, indice });
       armarOrden();
       avisar();
+      prepararSiguiente();
     },
     alternar,
-    siguiente,
+    siguiente: () => siguiente(),
     anterior,
+    irA,
     estado,
   };
 }

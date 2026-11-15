@@ -32,6 +32,7 @@
 <body>
   <header class="cabecera">
     <h1 class="marca">Muz<span class="marca__numero">15</span></h1>
+    <button id="ajustes" class="boton-icono boton-icono--ajustes" aria-label="Ajustes">⚙</button>
     <label class="boton boton--primario">
       + Importar
       <input id="importar" type="file" accept="audio/*,video/mp4,video/quicktime,.mp3,.m4a,.aac,.wav,.mp4,.m4v,.mov" multiple hidden>
@@ -127,8 +128,9 @@
       <button id="alternar" class="boton-icono boton-icono--grande" aria-label="Reproducir">▶</button>
       <button id="siguiente" class="boton-icono" aria-label="Siguiente">⏭</button>
     </div>
-    <!-- Un solo <audio> para toda la app: así iOS mantiene la sesión de audio -->
+    <!-- Dos <audio>: mientras uno suena, el otro ya tiene cargada la siguiente canción -->
     <audio id="audio" preload="auto"></audio>
+    <audio id="audio2" preload="auto"></audio>
   </footer>
 </body>
 </html>
