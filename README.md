@@ -19,6 +19,17 @@ Mi app de música personal. Funciona sin internet, se instala en iPhone y Androi
 | `icons/` | Íconos placeholder. Reemplázalos por los tuyos con el mismo nombre y tamaño. |
 | `tools/` | Ayudantes para la computadora: servidor local y generador de íconos. |
 
+## Videos a MP3 (en la PC)
+
+Si pones un video (`.mp4`, `.mov`, `.mkv`, `.webm`) en `C:\Music`, en un minuto se convierte solo en `.mp3`. La portada sale de un cuadro del video, y el original se mueve a `Videos\Muz15-originales`.
+
+- Para activarlo (una sola vez):
+  ```bash
+  powershell -ExecutionPolicy Bypass -File tools/instalar-conversion.ps1
+  ```
+- Para ver qué se convirtió, abre `Videos\Muz15-originales\conversiones.log`.
+- Para desactivarlo, abre el Programador de tareas de Windows y borra la tarea **Muz15 - convertir videos**.
+
 ## Probar en la computadora
 
 ```bash
