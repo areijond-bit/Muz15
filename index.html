@@ -39,8 +39,9 @@
   </header>
 
   <nav class="pestanas" aria-label="Biblioteca">
-    <button class="pestana pestana--activa" data-vista="telefono">En el teléfono</button>
-    <button class="pestana" data-vista="servidor">Servidor</button>
+    <button class="pestana pestana--activa" data-vista="telefono">Descargadas</button>
+    <button class="pestana" data-vista="listas">Listas</button>
+    <button class="pestana" data-vista="servidor">Mi PC</button>
   </nav>
 
   <p id="aviso" class="aviso" role="status" hidden></p>
@@ -51,9 +52,29 @@
       <ul id="lista" class="lista"></ul>
       <div id="vacio" class="vacio">
         <p class="vacio__titulo">Todavía no hay canciones</p>
-        <p class="vacio__texto">Toca <strong>+ Importar</strong> y elige archivos MP3, M4A o MP4,<br>o descárgalas desde la pestaña <strong>Servidor</strong>.<br>Se guardan en el teléfono y suenan sin internet.</p>
+        <p class="vacio__texto">Toca <strong>+ Importar</strong> y elige archivos MP3, M4A o MP4,<br>o descárgalas desde la pestaña <strong>Mi PC</strong>.<br>Se guardan en el teléfono y suenan sin internet.</p>
       </div>
       <p id="espacio" class="espacio"></p>
+    </section>
+
+    <!-- Listas (playlists) hechas con canciones descargadas -->
+    <section id="vista-listas" hidden>
+      <div id="indice-listas">
+        <button id="nueva-lista" class="boton boton--primario">+ Nueva lista</button>
+        <ul id="listas" class="lista"></ul>
+        <p id="sin-listas" class="espacio">Crea una lista y agrégale canciones desde <strong>Descargadas</strong> con el botón ⋯.</p>
+      </div>
+
+      <div id="detalle-lista" hidden>
+        <div class="encabezado-lista">
+          <button id="volver-listas" class="boton-icono" aria-label="Volver a las listas">‹</button>
+          <h2 id="nombre-lista" class="encabezado-lista__nombre"></h2>
+          <button id="opciones-lista" class="boton-icono" aria-label="Opciones de la lista">⋯</button>
+          <button id="reproducir-lista" class="boton-icono boton-icono--grande" aria-label="Reproducir la lista">▶</button>
+        </div>
+        <ul id="canciones-lista" class="lista"></ul>
+        <p id="lista-vacia" class="espacio">Esta lista está vacía. En <strong>Descargadas</strong>, toca ⋯ en una canción → <strong>Agregar a una lista</strong>.</p>
+      </div>
     </section>
 
     <!-- Canciones de tu servidor Navidrome -->

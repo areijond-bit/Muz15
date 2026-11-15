@@ -9,9 +9,10 @@
 // ha tenido fallos guardando Blobs en IndexedDB; el ArrayBuffer siempre funciona.
 
 const NOMBRE_DB = 'muz15';
-const VERSION_DB = 1;
+const VERSION_DB = 2; // 2: se agregaron las listas
 const CANCIONES = 'canciones';
 const AUDIOS = 'audios';
+const LISTAS = 'listas'; // { id, nombre, canciones: [id, id, ...], creada }
 
 let promesaDB = null;
 
@@ -30,9 +31,17 @@ function abrirDB() {
         if (!db.objectStoreNames.contains(AUDIOS)) {
           db.createObjectStore(AUDIOS); // clave = id de la canción
         }
+        if (!db.objectStoreNames.contains(LISTAS)) {
+          db.createObjectStore(LISTAS, { keyPath: 'id' });
+        }
       };
 
-      pedido.onsuccess = () => resolve(pedido.result);
+      pedido.onsuccess = () => {
+        const db = pedido.result;
+        // Si una versión nueva de la app necesita actualizar la base, le cedemos el paso.
+        db.onversionchange = () => { db.close(); promesaDB = null; };
+        resolve(db);
+      };
       pedido.onerror = () => reject(pedido.error);
     });
   }
@@ -84,12 +93,44 @@ export async function obtenerAudio(cancion) {
   return new Blob([buffer], { type: cancion.tipo });
 }
 
-/** Borra una canción y su audio. */
+/** Borra una canción, su audio, y la saca de todas las listas. */
 export async function borrarCancion(id) {
   const db = await abrirDB();
-  const tx = db.transaction([CANCIONES, AUDIOS], 'readwrite');
+  const tx = db.transaction([CANCIONES, AUDIOS, LISTAS], 'readwrite');
   tx.objectStore(CANCIONES).delete(id);
   tx.objectStore(AUDIOS).delete(id);
+  const listas = tx.objectStore(LISTAS);
+  listas.getAll().onsuccess = (evento) => {
+    for (const lista of evento.target.result) {
+      if (lista.canciones.includes(id)) {
+        listas.put({ ...lista, canciones: lista.canciones.filter((c) => c !== id) });
+      }
+    }
+  };
+  await transaccionTerminada(tx);
+}
+
+/* ---------- Listas (playlists) ---------- */
+
+/** Todas las listas, de la más nueva a la más vieja. */
+export async function listarListas() {
+  const db = await abrirDB();
+  const listas = await comoPromesa(db.transaction(LISTAS).objectStore(LISTAS).getAll());
+  return listas.sort((a, b) => b.creada - a.creada);
+}
+
+/** Crea o actualiza una lista completa. */
+export async function guardarLista(lista) {
+  const db = await abrirDB();
+  const tx = db.transaction(LISTAS, 'readwrite');
+  tx.objectStore(LISTAS).put(lista);
+  await transaccionTerminada(tx);
+}
+
+export async function borrarLista(id) {
+  const db = await abrirDB();
+  const tx = db.transaction(LISTAS, 'readwrite');
+  tx.objectStore(LISTAS).delete(id);
   await transaccionTerminada(tx);
 }
 

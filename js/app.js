@@ -1,9 +1,13 @@
 // app.js — Une todo: importar archivos, pintar la lista y conectar los botones.
 
-import { guardarCancion, listarCanciones, obtenerAudio, borrarCancion, pedirAlmacenamientoPersistente, espacioUsado } from './db.js';
+import {
+  guardarCancion, listarCanciones, obtenerAudio, borrarCancion, pedirAlmacenamientoPersistente, espacioUsado,
+  listarListas, guardarLista, borrarLista,
+} from './db.js';
 import { leerMetadatos } from './metadatos.js';
 import { crearReproductor } from './reproductor.js';
 import * as servidor from './servidor.js';
+import { abrirHoja, confirmar } from './hoja.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -33,14 +37,28 @@ const el = {
   estadoServidor: $('estado-servidor'),
   listaServidor: $('lista-servidor'),
   desconectar: $('desconectar'),
+  vistaListas: $('vista-listas'),
+  indiceListas: $('indice-listas'),
+  nuevaLista: $('nueva-lista'),
+  listas: $('listas'),
+  sinListas: $('sin-listas'),
+  detalleLista: $('detalle-lista'),
+  volverListas: $('volver-listas'),
+  nombreLista: $('nombre-lista'),
+  opcionesLista: $('opciones-lista'),
+  reproducirLista: $('reproducir-lista'),
+  cancionesLista: $('canciones-lista'),
+  listaVacia: $('lista-vacia'),
 };
 
 // Para no dibujar miles de filas de golpe: con más resultados, hay que buscar.
 const MAXIMO_EN_PANTALLA = 200;
 
-// URLs temporales de las portadas de la lista (las liberamos al volver a pintar).
-let urlsPortadas = [];
+// Portadas de las canciones del teléfono: id → URL temporal (se reusan entre vistas).
+const portadas = new Map();
 let cancionesLocales = [];
+let listas = [];
+let listaAbierta = null; // id de la lista que se está viendo
 let cancionesServidor = [];   // toda la biblioteca del servidor
 let visiblesServidor = [];    // las que pasan el filtro de búsqueda
 const descargando = new Set(); // idServidor de las que se están bajando ahora
@@ -158,8 +176,10 @@ function portadaDeVideo(archivo) {
 /* ---------- Lista ---------- */
 
 async function recargarLista() {
-  cancionesLocales = await listarCanciones();
+  [cancionesLocales, listas] = await Promise.all([listarCanciones(), listarListas()]);
+  liberarPortadasHuerfanas();
   pintarLista(cancionesLocales);
+  pintarListas();
   pintarEspacio();
   if (cancionesServidor.length) pintarListaServidor(); // actualiza los ✓ de descargadas
 }
@@ -170,27 +190,198 @@ function localDe(cancionServidor) {
 }
 
 function pintarLista(canciones) {
-  urlsPortadas.forEach(URL.revokeObjectURL);
-  urlsPortadas = [];
-
   el.vacio.hidden = canciones.length > 0;
   el.lista.replaceChildren(...canciones.map((cancion, i) => {
-    const borrar = document.createElement('button');
-    borrar.className = 'cancion__borrar';
-    borrar.setAttribute('aria-label', `Borrar ${cancion.titulo}`);
-    borrar.textContent = '×';
-    borrar.addEventListener('click', async (evento) => {
-      evento.stopPropagation(); // que no empiece a sonar al borrar
-      if (!confirm(`¿Borrar "${cancion.titulo}" del teléfono?`)) return;
-      await borrarCancion(cancion.id);
-      reproductor.quitar(cancion.id);
-      await recargarLista();
-    });
-
-    return crearFila(cancion, urlDePortada(cancion), borrar, () => reproductor.reproducirLista(cancionesLocales, i));
+    const menu = botonMenu(cancion, () => menuCancion(cancion));
+    return crearFila(cancion, urlDePortada(cancion), menu, () => reproductor.reproducirLista(cancionesLocales, i));
   }));
 
   marcarSonando(reproductor.estado().cancion);
+}
+
+/** Botón ⋯ al final de una fila. */
+function botonMenu(cancion, alTocar) {
+  const boton = document.createElement('button');
+  boton.className = 'cancion__borrar';
+  boton.setAttribute('aria-label', `Opciones de ${cancion.titulo}`);
+  boton.textContent = '⋯';
+  boton.addEventListener('click', (evento) => {
+    evento.stopPropagation(); // que no empiece a sonar
+    alTocar();
+  });
+  return boton;
+}
+
+/* ---------- Menú de una canción ---------- */
+
+function menuCancion(cancion) {
+  abrirHoja({
+    titulo: cancion.titulo,
+    subtitulo: cancion.artista,
+    acciones: [
+      { texto: '+ Agregar a una lista', alElegir: () => elegirLista(cancion) },
+      {
+        texto: 'Borrar del teléfono',
+        peligro: true,
+        alElegir: () => confirmar({
+          titulo: `¿Borrar "${cancion.titulo}"?`,
+          subtitulo: 'Se borra de este teléfono y de tus listas. Si está en tu PC, la puedes volver a descargar.',
+          textoBoton: 'Borrar',
+          alConfirmar: async () => {
+            await borrarCancion(cancion.id);
+            reproductor.quitar(cancion.id);
+            await recargarLista();
+            mostrarAviso(`"${cancion.titulo}" se borró del teléfono.`, 3000);
+          },
+        }),
+      },
+    ],
+  });
+}
+
+function elegirLista(cancion) {
+  abrirHoja({
+    titulo: 'Agregar a una lista',
+    subtitulo: cancion.titulo,
+    acciones: [
+      { texto: '+ Nueva lista', alElegir: () => crearLista(cancion) },
+      ...listas.map((lista) => ({
+        texto: lista.canciones.includes(cancion.id) ? `${lista.nombre}  ✓` : lista.nombre,
+        alElegir: () => agregarALista(lista, cancion),
+      })),
+    ],
+  });
+}
+
+async function agregarALista(lista, cancion) {
+  if (lista.canciones.includes(cancion.id)) {
+    mostrarAviso(`Ya está en "${lista.nombre}".`, 3000);
+    return;
+  }
+  await guardarLista({ ...lista, canciones: [...lista.canciones, cancion.id] });
+  await recargarLista();
+  mostrarAviso(`Agregada a "${lista.nombre}".`, 3000);
+}
+
+/** Pide un nombre y crea la lista (con una canción adentro, si se da). */
+function crearLista(cancionInicial) {
+  abrirHoja({
+    titulo: 'Nueva lista',
+    entrada: {
+      placeholder: 'Nombre (ej. Para el carro)',
+      textoBoton: 'Crear lista',
+      alAceptar: async (nombre) => {
+        const lista = {
+          id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+          nombre,
+          canciones: cancionInicial ? [cancionInicial.id] : [],
+          creada: Date.now(),
+        };
+        await guardarLista(lista);
+        await recargarLista();
+        mostrarAviso(cancionInicial ? `Lista "${nombre}" creada con "${cancionInicial.titulo}".` : `Lista "${nombre}" creada.`, 3000);
+      },
+    },
+  });
+}
+
+/* ---------- Listas ---------- */
+
+el.nuevaLista.addEventListener('click', () => crearLista(null));
+el.volverListas.addEventListener('click', () => { listaAbierta = null; pintarListas(); });
+
+/** Las canciones de una lista, en su orden (ignorando las que ya no existen). */
+function cancionesDe(lista) {
+  return lista.canciones.map((id) => cancionesLocales.find((c) => c.id === id)).filter(Boolean);
+}
+
+function pintarListas() {
+  const abierta = listas.find((l) => l.id === listaAbierta);
+  if (!abierta) listaAbierta = null;
+  el.indiceListas.hidden = Boolean(abierta);
+  el.detalleLista.hidden = !abierta;
+
+  if (!abierta) {
+    el.sinListas.hidden = listas.length > 0;
+    el.listas.replaceChildren(...listas.map((lista) => {
+      const canciones = cancionesDe(lista);
+      const fila = crearFila(
+        { id: lista.id, titulo: lista.nombre, artista: `${canciones.length} ${canciones.length === 1 ? 'canción' : 'canciones'}` },
+        canciones[0] ? urlDePortada(canciones[0]) : 'icons/portada.png',
+        botonMenu({ titulo: lista.nombre }, () => menuLista(lista)),
+        () => { listaAbierta = lista.id; pintarListas(); },
+      );
+      return fila;
+    }));
+    return;
+  }
+
+  const canciones = cancionesDe(abierta);
+  el.nombreLista.textContent = abierta.nombre;
+  el.listaVacia.hidden = canciones.length > 0;
+  el.reproducirLista.disabled = canciones.length === 0;
+  el.cancionesLista.replaceChildren(...canciones.map((cancion, i) => {
+    const menu = botonMenu(cancion, () => abrirHoja({
+      titulo: cancion.titulo,
+      subtitulo: cancion.artista,
+      acciones: [{ texto: `Quitar de "${abierta.nombre}"`, alElegir: () => quitarDeLista(abierta, cancion) }],
+    }));
+    return crearFila(cancion, urlDePortada(cancion), menu, () => reproductor.reproducirLista(canciones, i));
+  }));
+  marcarSonando(reproductor.estado().cancion);
+}
+
+el.reproducirLista.addEventListener('click', () => {
+  const lista = listas.find((l) => l.id === listaAbierta);
+  const canciones = lista ? cancionesDe(lista) : [];
+  if (canciones.length) reproductor.reproducirLista(canciones, 0);
+});
+
+el.opcionesLista.addEventListener('click', () => {
+  const lista = listas.find((l) => l.id === listaAbierta);
+  if (lista) menuLista(lista);
+});
+
+async function quitarDeLista(lista, cancion) {
+  await guardarLista({ ...lista, canciones: lista.canciones.filter((id) => id !== cancion.id) });
+  await recargarLista();
+}
+
+function menuLista(lista) {
+  abrirHoja({
+    titulo: lista.nombre,
+    acciones: [
+      {
+        texto: 'Cambiar nombre',
+        alElegir: () => abrirHoja({
+          titulo: 'Cambiar nombre',
+          entrada: {
+            placeholder: 'Nombre de la lista',
+            valor: lista.nombre,
+            textoBoton: 'Guardar',
+            alAceptar: async (nombre) => {
+              await guardarLista({ ...lista, nombre });
+              await recargarLista();
+            },
+          },
+        }),
+      },
+      {
+        texto: 'Borrar lista',
+        peligro: true,
+        alElegir: () => confirmar({
+          titulo: `¿Borrar la lista "${lista.nombre}"?`,
+          subtitulo: 'Las canciones se quedan en Descargadas.',
+          textoBoton: 'Borrar lista',
+          alConfirmar: async () => {
+            await borrarLista(lista.id);
+            if (listaAbierta === lista.id) listaAbierta = null;
+            await recargarLista();
+          },
+        }),
+      },
+    ],
+  });
 }
 
 /** Una fila de canción: portada, título, artista y un botón a la derecha. */
@@ -219,13 +410,25 @@ function crearFila(cancion, portada, boton, alTocar) {
 
 function urlDePortada(cancion) {
   if (!cancion.portada) return 'icons/portada.png';
-  const url = URL.createObjectURL(new Blob([cancion.portada.datos], { type: cancion.portada.tipo }));
-  urlsPortadas.push(url);
-  return url;
+  if (!portadas.has(cancion.id)) {
+    portadas.set(cancion.id, URL.createObjectURL(new Blob([cancion.portada.datos], { type: cancion.portada.tipo })));
+  }
+  return portadas.get(cancion.id);
+}
+
+// Libera la memoria de las portadas de canciones que ya se borraron.
+function liberarPortadasHuerfanas() {
+  const vivas = new Set(cancionesLocales.map((c) => c.id));
+  for (const [id, url] of portadas) {
+    if (!vivas.has(id)) {
+      URL.revokeObjectURL(url);
+      portadas.delete(id);
+    }
+  }
 }
 
 function marcarSonando(cancion) {
-  for (const li of [...el.lista.children, ...el.listaServidor.children]) {
+  for (const li of [...el.lista.children, ...el.cancionesLista.children, ...el.listaServidor.children]) {
     li.classList.toggle('cancion--sonando', li.dataset.id === cancion?.id);
   }
 }
@@ -248,6 +451,7 @@ function mostrarVista(vista) {
     pestana.classList.toggle('pestana--activa', pestana.dataset.vista === vista);
   }
   el.vistaTelefono.hidden = vista !== 'telefono';
+  el.vistaListas.hidden = vista !== 'listas';
   el.vistaServidor.hidden = vista !== 'servidor';
   if (vista === 'servidor') abrirServidor();
 }
@@ -283,13 +487,17 @@ el.formServidor.addEventListener('submit', async (evento) => {
   }
 });
 
-el.desconectar.addEventListener('click', () => {
-  if (!confirm('¿Desconectar el servidor? Las canciones descargadas se quedan en el teléfono.')) return;
-  servidor.desconectar();
-  cancionesServidor = visiblesServidor = [];
-  el.listaServidor.replaceChildren();
-  abrirServidor();
-});
+el.desconectar.addEventListener('click', () => confirmar({
+  titulo: '¿Desconectar tu PC?',
+  subtitulo: 'Las canciones descargadas se quedan en el teléfono.',
+  textoBoton: 'Desconectar',
+  alConfirmar: () => {
+    servidor.desconectar();
+    cancionesServidor = visiblesServidor = [];
+    el.listaServidor.replaceChildren();
+    abrirServidor();
+  },
+}));
 
 el.recargarServidor.addEventListener('click', () => cargarServidor());
 

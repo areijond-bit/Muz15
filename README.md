@@ -14,6 +14,7 @@ Mi app de música personal. Funciona sin internet, se instala en iPhone y Androi
 | `js/db.js` | Guarda las canciones en IndexedDB para que sigan ahí sin internet. |
 | `js/metadatos.js` | Lee título, artista y portada del propio MP3 o M4A. Si no traen etiquetas, usa el nombre "Artista - Título". |
 | `js/servidor.js` | Se conecta a tu Navidrome: lista toda tu música, la reproduce en vivo y la descarga al teléfono. |
+| `js/hoja.js` | El menú que sube desde abajo (⋯): opciones, confirmar y escribir nombres. |
 | `js/md5.js` | Calcula la llave para iniciar sesión en Navidrome sin guardar tu contraseña. |
 | `js/reproductor.js` | Controla el `<audio>` y MediaSession, que se encarga de la pantalla bloqueada, el Bluetooth y los botones del volante. |
 | `manifest.webmanifest` | Nombre, colores e íconos para instalarla como app. |
