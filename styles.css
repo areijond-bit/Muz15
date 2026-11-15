@@ -659,6 +659,8 @@ button { font: inherit; color: inherit; }
 .eq__perfil--activo { border-color: var(--color-acento); background: var(--color-acento); color: var(--color-texto-sobre-acento); font-weight: var(--peso-fuerte); }
 
 .eq--apagado .eq__curva path { stroke: var(--color-texto-suave); }
+.eq--apagado .volumen__opciones { opacity: 0.5; }
+.volumen__nota { text-align: left; line-height: 1.5; }
 .eq--apagado .eq__banda input { accent-color: var(--color-texto-suave); }
 
 /* =========================================================

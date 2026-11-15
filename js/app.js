@@ -11,7 +11,7 @@ import { crearReproductor } from './reproductor.js';
 import * as servidor from './servidor.js';
 import { abrirHoja, confirmar } from './hoja.js';
 import { esApk, AppNativa } from './nativo.js';
-import { crearEcualizador, BANDAS, PERFILES, MAXIMO_DB } from './ecualizador.js';
+import { crearEcualizador, BANDAS, PERFILES, MAXIMO_DB, OPCIONES_TOPE_DB } from './ecualizador.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -1694,6 +1694,7 @@ el.ajustes.addEventListener('click', () => {
     subtitulo: version,
     acciones: [
       { texto: `🎚 Ecualizador${estadoEq.activo ? `  ·  ${nombrePerfil()}` : ''}`, alElegir: abrirEcualizador },
+      { texto: `🛡 Volumen seguro  ·  ${volumenSeguro.activo ? `${volumenSeguro.db} dB` : 'desactivado'}`, alElegir: abrirVolumenSeguro },
       { texto: '⇄ Transición entre canciones', alElegir: elegirTransicion },
       { texto: '🧹 Quitar canciones repetidas', alElegir: quitarRepetidas },
       { texto: '⟳ Buscar actualizaciones', alElegir: buscarActualizaciones },
@@ -1841,6 +1842,82 @@ function guardarEq() {
 if (estadoEq.activo) {
   ecualizador.aplicar(estadoEq.ganancias);
   document.addEventListener('pointerdown', () => ecualizador.conectar(), { once: true, capture: true });
+}
+
+/* ---------- Volumen seguro ---------- */
+// Un tope para el volumen máximo que sale de Muz15, sin importar el ecualizador.
+// Los dB son aproximados: tomando 100 dB como el máximo del teléfono con
+// audífonos comunes (ver ecualizador.js).
+
+const CLAVE_VOLUMEN_SEGURO = 'muz15-volumen-seguro';
+let volumenSeguro = { activo: false, db: 85 };
+try {
+  const guardado = JSON.parse(localStorage.getItem(CLAVE_VOLUMEN_SEGURO));
+  if (guardado && OPCIONES_TOPE_DB.includes(guardado.db)) volumenSeguro = guardado;
+} catch { /* nada */ }
+
+function aplicarVolumenSeguro() {
+  ecualizador.ponerTope(volumenSeguro.activo ? volumenSeguro.db : null);
+  try { localStorage.setItem(CLAVE_VOLUMEN_SEGURO, JSON.stringify(volumenSeguro)); } catch { /* nada */ }
+}
+
+if (volumenSeguro.activo) {
+  ecualizador.ponerTope(volumenSeguro.db);
+  // Igual que el ecualizador: el procesador de audio se enciende con el primer toque.
+  document.addEventListener('pointerdown', () => ecualizador.conectar(), { once: true, capture: true });
+}
+
+function abrirVolumenSeguro() {
+  const panel = document.createElement('div');
+  panel.className = 'eq';
+  panel.innerHTML = `
+    <label class="eq__interruptor">
+      <span>Volumen seguro</span>
+      <input type="checkbox" role="switch">
+    </label>
+    <p class="formulario__nota volumen__nota">Tope de volumen que nunca se pasa, aunque subas el ecualizador. Los dB son aproximados (medidos como con audífonos comunes al volumen máximo del teléfono); con bocinas o audífonos muy potentes puede sonar más fuerte.</p>
+    <div class="eq__perfiles volumen__opciones"></div>`;
+
+  const interruptor = panel.querySelector('input[role="switch"]');
+  const opciones = panel.querySelector('.volumen__opciones');
+
+  for (const db of OPCIONES_TOPE_DB) {
+    const boton = document.createElement('button');
+    boton.type = 'button';
+    boton.className = 'eq__perfil';
+    boton.dataset.db = db;
+    boton.textContent = `${db} dB`;
+    boton.addEventListener('click', () => {
+      ecualizador.conectar(); // estamos dentro de un toque: el navegador lo permite
+      volumenSeguro = { activo: true, db };
+      aplicarVolumenSeguro();
+      pintar();
+      mostrarAviso(`Volumen seguro: máximo ${db} dB.`, 2500);
+    });
+    opciones.append(boton);
+  }
+
+  interruptor.addEventListener('change', () => {
+    if (interruptor.checked) ecualizador.conectar();
+    volumenSeguro = { ...volumenSeguro, activo: interruptor.checked };
+    aplicarVolumenSeguro();
+    pintar();
+  });
+
+  function pintar() {
+    interruptor.checked = volumenSeguro.activo;
+    panel.classList.toggle('eq--apagado', !volumenSeguro.activo);
+    for (const boton of opciones.children) {
+      boton.classList.toggle('eq__perfil--activo', volumenSeguro.activo && Number(boton.dataset.db) === volumenSeguro.db);
+    }
+  }
+
+  pintar();
+  abrirHoja({
+    titulo: '🛡 Volumen seguro',
+    subtitulo: 'Elige el volumen máximo. 85 dB o menos es lo recomendado para escuchar por horas.',
+    contenido: panel,
+  });
 }
 
 function abrirEcualizador() {

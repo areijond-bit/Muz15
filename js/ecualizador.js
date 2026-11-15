@@ -4,6 +4,7 @@
 //   <audio> ─┐
 //            ├─► 100 Hz ► 200 ► 400 ► 800 ► 1.6k ► 3.2k ► 6.4k ► 12.8k ─► bocinas
 //   <audio> ─┘
+// (después de los 8 filtros va el "tope" del volumen seguro, ver más abajo)
 // Cada filtro sube o baja el volumen de su zona: 100-200 Hz son los bajos (bombo,
 // bajo), 400-800 los medios (cuerpo de la guitarra, voz), 1.6k-3.2k la presencia
 // (ataque de la guitarra, claridad de la voz) y 6.4k-12.8k los agudos (platillos, brillo).
@@ -25,11 +26,35 @@ export const PERFILES = {
   carro: { nombre: 'Para el carro', ganancias: [4, 3, 0, -1, 1, 3, 3, 2] },
 };
 
+/* Volumen seguro: después de los filtros hay un "tope" (un control de volumen fijo).
+ *
+ * El teléfono no puede medir los dB que llegan a tu oído (dependen de los
+ * audífonos o bocinas). Tomamos como referencia 100 dB = volumen máximo del
+ * teléfono con audífonos comunes, y cada opción baja ese máximo:
+ *   85 dB → 15 dB menos que el máximo, 70 dB → 30 dB menos, etc.
+ * Si el ecualizador sube alguna banda, el tope baja esa misma cantidad, así
+ * que la suma nunca se pasa del límite elegido. */
+export const REFERENCIA_DB = 100;
+export const OPCIONES_TOPE_DB = [70, 75, 80, 85, 90, 95, 100];
+
 /** @param {HTMLAudioElement[]} audios  los <audio> del reproductor */
 export function crearEcualizador(audios) {
   let contexto = null;
   let filtros = [];
+  let salida = null;  // el "tope" del volumen seguro
   let ganancias = BANDAS.map(() => 0);
+  let topeDb = null;  // null = sin volumen seguro
+
+  // Cuánto multiplica el tope: 1 = nada; 0.18 = 15 dB menos; etc.
+  function factorTope() {
+    if (topeDb === null) return 1;
+    const subidaMaxima = Math.max(0, ...ganancias); // lo que el ecualizador podría subir
+    return 10 ** ((topeDb - REFERENCIA_DB - subidaMaxima) / 20);
+  }
+
+  function aplicarTope() {
+    if (salida) salida.gain.setTargetAtTime(factorTope(), contexto.currentTime, 0.05);
+  }
 
   // Arma la cadena de filtros. Debe llamarse desde un toque del usuario
   // (el navegador no deja crear audio sin uno).
@@ -45,8 +70,11 @@ export function crearEcualizador(audios) {
       filtro.gain.value = ganancias[i];
       return filtro;
     });
+    salida = contexto.createGain();
+    salida.gain.value = factorTope();
     filtros.reduce((anterior, siguiente) => { anterior.connect(siguiente); return siguiente; });
-    filtros.at(-1).connect(contexto.destination);
+    filtros.at(-1).connect(salida);
+    salida.connect(contexto.destination);
     for (const audio of audios) contexto.createMediaElementSource(audio).connect(filtros[0]);
 
     // El navegador pausa el procesador si se queda sin uso; lo reactivamos al reproducir.
@@ -63,6 +91,14 @@ export function crearEcualizador(audios) {
       const ahora = contexto.currentTime;
       // Cambio suave (50 ms) para que no truene al mover una barra.
       filtros.forEach((filtro, i) => filtro.gain.setTargetAtTime(ganancias[i], ahora, 0.05));
+      aplicarTope(); // si subiste una banda, el tope se ajusta para no pasarse
     },
+    /** Volumen seguro: dB máximos (70–100) o null para quitarlo. */
+    ponerTope(db) {
+      topeDb = db;
+      if (contexto) aplicarTope();
+    },
+    /** Para revisar: el factor que se está aplicando ahora. */
+    get factorTope() { return factorTope(); },
   };
 }
