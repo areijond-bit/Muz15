@@ -22,6 +22,15 @@ Mi app de música personal. Funciona sin internet, se instala en iPhone y Androi
 | `icons/` | Íconos placeholder. Reemplázalos por los tuyos con el mismo nombre y tamaño. |
 | `tools/` | Ayudantes para la computadora: servidor local y generador de íconos. |
 
+## APK de Android
+
+La APK (carpeta `android/`, hecha con Capacitor) es un "cascarón": carga la app desde GitHub Pages y le agrega los controles nativos de la pantalla de bloqueo, la notificación y el carro.
+
+- **Descarga:** https://github.com/areijond-bit/Muz15/releases/latest/download/Muz15.apk
+- **Cambios en HTML, CSS o JS:** no hace falta APK nueva. Basta con cerrar y abrir Muz15.
+- **Cambios en `android/`, `capacitor.config.json` o `package.json`:** GitHub Actions compila una APK nueva (`.github/workflows/apk.yml`) y la publica en Releases. La app avisa sola y se instala encima.
+- La firma usa los secretos `MUZ15_KEYSTORE_BASE64` y `MUZ15_KEYSTORE_PASSWORD`. Hay una copia de la llave en `Documentos\Muz15 - llave de firma (NO BORRAR)`.
+
 ## Videos a MP3 (en la PC)
 
 Si pones un video (`.mp4`, `.mov`, `.mkv`, `.webm`) en `C:\Music`, en un minuto se convierte solo en `.mp3`. La portada sale de un cuadro del video, y el original se mueve a `Videos\Muz15-originales`.
