@@ -2997,8 +2997,11 @@ function iniciarCuenta() {
   alCambiarSesion(async (usuario) => {
     usuarioNube = usuario;
     let perfil = null;
+    const preparando = usuario && !nube.perfil();
+    if (preparando) mostrarAviso('Preparando tu cuenta…');
     try {
       perfil = await nube.conectar(usuario);
+      if (preparando) el.aviso.hidden = true;
     } catch (error) {
       mostrarAviso(`No se pudo conectar con tu cuenta: ${error.message}`, 5000);
     }
@@ -3096,7 +3099,8 @@ function formularioEntrar(alTerminar) {
     const correo = formulario.elements.correo.value;
     const contrasena = campoContrasena.value;
     enviar.disabled = true;
-    enviar.textContent = creando ? 'Creando…' : 'Entrando…';
+    enviar.classList.add('cargando');
+    enviar.textContent = creando ? 'Creando tu cuenta…' : 'Entrando…';
     try {
       if (creando) {
         const { falta } = await crearCuenta(correo, contrasena);
@@ -3104,6 +3108,7 @@ function formularioEntrar(alTerminar) {
           avisar(`Te mandamos un correo a ${correo.trim()}: ábrelo para confirmar tu cuenta y luego entra aquí.`, 'bien');
           creando = false;
           enviar.disabled = false;
+          enviar.classList.remove('cargando');
           enviar.textContent = 'Entrar';
           cambiar.textContent = '¿No tienes cuenta? Crea una';
           return;
@@ -3115,6 +3120,7 @@ function formularioEntrar(alTerminar) {
     } catch (error) {
       avisar(error.message);
       enviar.disabled = false;
+      enviar.classList.remove('cargando');
       enviar.textContent = creando ? 'Crear cuenta' : 'Entrar';
     }
   });
@@ -3287,7 +3293,8 @@ function pedirPerfil() {
     if (error) return ponerNota(error, 'error');
     if (!disponible) return ponerNota(`@${usuario} ya lo tiene alguien más`, 'error');
     enviar.disabled = true;
-    enviar.textContent = 'Guardando…';
+    enviar.classList.add('cargando');
+    enviar.textContent = actual ? 'Guardando…' : 'Creando tu perfil…';
     try {
       const perfil = await nube.guardarPerfil({ usuario, nombre: campoNombre.value.trim(), foto });
       cerrar();
@@ -3297,6 +3304,7 @@ function pedirPerfil() {
     } catch (error) {
       ponerNota(error.message, 'error');
       enviar.disabled = false;
+      enviar.classList.remove('cargando');
       enviar.textContent = actual ? 'Guardar' : 'Crear mi perfil';
     }
   });

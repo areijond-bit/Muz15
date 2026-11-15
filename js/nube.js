@@ -19,6 +19,10 @@ import {
 
 const db = () => supabase();
 
+// Audios y perfiles se unen de varias formas (dueño, guardados, likes, comentarios):
+// hay que decirle a Supabase cuál usar, si no responde "more than one relationship".
+const CON_DUENO = '*, perfil:perfiles!audios_dueno_fkey(id, usuario, nombre, foto)';
+
 let yo = null;          // id de tu cuenta
 let miPerfil = null;
 let canal = null;
@@ -275,7 +279,7 @@ async function unaVuelta() {
   await quitarLasBorradasSinInternet();
 
   const [{ data: guardados, error: e1 }, { data: remotas, error: e2 }] = await Promise.all([
-    db().from('guardados').select('orden, agregado, siguiente, audio:audios(*, perfil:perfiles(usuario))').eq('usuario', yo),
+    db().from('guardados').select('orden, agregado, siguiente, audio:audios!guardados_audio_fkey(*, perfil:perfiles!audios_dueno_fkey(usuario))').eq('usuario', yo),
     db().from('listas').select('*').eq('dueno', yo),
   ]);
   if (e1 || e2) throw traducir(e1 ?? e2);
@@ -583,7 +587,7 @@ const POR_PAGINA = 50;
 
 /** Audios de todos, del más nuevo al más viejo. Con búsqueda y/o de un solo dueño. */
 export async function explorar({ busqueda = '', dueno = null, pagina = 0 } = {}) {
-  let consulta = db().from('audios').select('*, perfil:perfiles(id, usuario, nombre, foto)')
+  let consulta = db().from('audios').select(CON_DUENO)
     .order('creado', { ascending: false })
     .range(pagina * POR_PAGINA, pagina * POR_PAGINA + POR_PAGINA - 1);
   if (dueno) consulta = consulta.eq('dueno', dueno);
@@ -656,7 +660,7 @@ export async function reaccionar(audio, valor) {
 }
 
 export async function comentariosDe(audio) {
-  const { data, error } = await db().from('comentarios').select('*, perfil:perfiles(id, usuario, nombre, foto)')
+  const { data, error } = await db().from('comentarios').select('*, perfil:perfiles!comentarios_usuario_fkey(id, usuario, nombre, foto)')
     .eq('audio', audio).order('creado', { ascending: false }).limit(100);
   if (error) throw traducir(error);
   return data;
@@ -674,7 +678,7 @@ export async function borrarComentario(id) {
 
 /** Un audio con su dueño (para la pantalla del reproductor). */
 export async function audioPorId(id) {
-  const { data, error } = await db().from('audios').select('*, perfil:perfiles(id, usuario, nombre, foto)').eq('id', id).maybeSingle();
+  const { data, error } = await db().from('audios').select(CON_DUENO).eq('id', id).maybeSingle();
   if (error) throw traducir(error);
   return data;
 }
@@ -690,7 +694,7 @@ export async function albumesDe(dueno) {
 /** Audios por id (para las portadas y canciones de un álbum). */
 export async function audiosPorIds(ids) {
   if (!ids.length) return [];
-  const { data, error } = await db().from('audios').select('*, perfil:perfiles(id, usuario, nombre, foto)').in('id', ids);
+  const { data, error } = await db().from('audios').select(CON_DUENO).in('id', ids);
   if (error) throw traducir(error);
   return data;
 }

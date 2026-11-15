@@ -1301,3 +1301,18 @@ body.con-pantalla { overflow: hidden; }
 .entrar .formulario-perfil { gap: var(--espacio-s); }
 .entrar__enlace { border: 0; background: transparent; color: var(--color-acento); font: inherit; font-size: var(--texto-s); cursor: pointer; padding: 6px 0; }
 .entrar__enlace[hidden] { display: none; }
+
+/* Botón trabajando: una ruedita girando antes del texto */
+.cargando { display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
+.cargando::before {
+  content: '';
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: girar 0.7s linear infinite;
+}
+@keyframes girar { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .cargando::before { animation-duration: 2s; } }
