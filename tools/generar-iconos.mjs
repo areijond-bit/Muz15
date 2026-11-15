@@ -5,8 +5,8 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 
-const FONDO = [0x0e, 0x0e, 0x12];
-const ACENTO = [0xff, 0x5a, 0x36];
+const FONDO = [0x00, 0x00, 0x00];
+const ACENTO = [0xa8, 0xff, 0x1a];
 const BLANCO = [0xf4, 0xf4, 0xf6];
 const MUESTREO = 4; // dibujamos 4 veces más grande y reducimos: bordes suaves
 
