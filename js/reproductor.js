@@ -4,9 +4,10 @@
 // bloqueada, en el Control Center y en la pantalla del carro, y que los botones
 // del volante (siguiente / anterior) lleguen a la app.
 //
-// Solo registramos play, pause, previoustrack y nexttrack. NO registramos
-// seekforward / seekbackward: en iOS, si existen, los botones del carro pueden
-// convertirse en "±10 segundos" en vez de "canción siguiente / anterior".
+// Registramos play, pause, previoustrack, nexttrack y seekto (la barra de tiempo
+// que se puede arrastrar). NO registramos seekforward / seekbackward: en iOS, si
+// existen, los botones del carro pueden convertirse en "±10 segundos" en vez de
+// "canción siguiente / anterior".
 
 const PORTADA_POR_DEFECTO = new URL('../icons/portada.png', import.meta.url).href;
 
@@ -85,6 +86,10 @@ export function crearReproductor(audio, { obtenerAudio, alCambiar }) {
     return reproducir(indice - 1);
   }
 
+  function irA(segundos) {
+    audio.currentTime = Math.min(Math.max(segundos, 0), audio.duration || 0);
+  }
+
   /* ---------- MediaSession ---------- */
 
   function actualizarMediaSession(cancion) {
@@ -109,6 +114,8 @@ export function crearReproductor(audio, { obtenerAudio, alCambiar }) {
       pause: () => audio.pause(),
       previoustrack: anterior,
       nexttrack: siguiente,
+      // Arrastrar la barra de tiempo en la pantalla bloqueada o la notificación.
+      seekto: (detalles) => irA(detalles.seekTime),
       // Quitamos explícitamente estos para que el carro muestre siguiente / anterior.
       seekforward: null,
       seekbackward: null,
@@ -122,16 +129,39 @@ export function crearReproductor(audio, { obtenerAudio, alCambiar }) {
     }
   }
 
+  // Le dice al sistema cuánto dura la canción y en qué segundo va, para que
+  // la pantalla bloqueada muestre "1:23 / 3:45" con la barra. No hace falta
+  // llamarlo cada segundo: el sistema avanza la barra solo mientras suena.
+  function actualizarPosicion() {
+    if (!navigator.mediaSession?.setPositionState) return;
+    const duracion = audio.duration;
+    if (!Number.isFinite(duracion) || duracion <= 0) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: duracion,
+        playbackRate: audio.playbackRate || 1,
+        position: Math.min(audio.currentTime, duracion),
+      });
+    } catch (error) {
+      console.warn('No se pudo actualizar la barra de tiempo:', error.message);
+    }
+  }
+
   /* ---------- Eventos del <audio> ---------- */
 
   audio.addEventListener('play', () => {
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    actualizarPosicion();
     avisar();
   });
   audio.addEventListener('pause', () => {
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    actualizarPosicion();
     avisar();
   });
+  audio.addEventListener('loadedmetadata', actualizarPosicion);
+  audio.addEventListener('seeked', actualizarPosicion);
+  audio.addEventListener('ratechange', actualizarPosicion);
   audio.addEventListener('ended', siguiente);
   audio.addEventListener('error', () => console.error('Error del <audio>:', audio.error));
 
