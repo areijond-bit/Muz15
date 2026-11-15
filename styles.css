@@ -1319,3 +1319,21 @@ body.con-pantalla { overflow: hidden; }
 
 .pantalla__subio { margin: 4px 0 0; color: rgba(255, 255, 255, 0.6); font-size: var(--texto-s); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pantalla__subio:empty { display: none; }
+
+/* Top: los más escuchados */
+.top__periodos { margin: 0 0 var(--espacio-s); }
+.top__periodos .pildora { padding: 8px 14px; font-weight: var(--peso-normal); }
+.top__periodos .pildora--acento { font-weight: var(--peso-fuerte); }
+.top__lista { margin: 0; padding: 0; }
+.top__lista > li[hidden] { display: none; }
+.top__lugar {
+  flex: none;
+  width: 26px;
+  margin-right: 2px;
+  color: var(--color-texto-suave);
+  font-size: var(--texto-m);
+  font-weight: var(--peso-fuerte);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.top__lugar--podio { color: var(--color-acento); }

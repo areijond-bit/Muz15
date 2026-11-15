@@ -714,6 +714,36 @@ export async function borrarComentario(id) {
   if (error) throw traducir(error);
 }
 
+/* ---------- Top (los más escuchados) ---------- */
+
+export const PERIODOS_TOP = {
+  hoy: { nombre: 'Hoy', limite: 10 },
+  semana: { nombre: 'Semana', limite: 10 },
+  mes: { nombre: 'Mes', limite: 10 },
+  anio: { nombre: 'Año', limite: 100 },
+  siempre: { nombre: 'Siempre', limite: 100 },
+};
+
+function desdeCuando(periodo) {
+  const ahora = new Date();
+  if (periodo === 'hoy') return new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate()); // desde las 00:00
+  const dias = { semana: 7, mes: 30, anio: 365 }[periodo];
+  return new Date(ahora.getTime() - dias * 24 * 60 * 60 * 1000);
+}
+
+/** Los audios más escuchados del periodo, en orden, con "vecesPeriodo". (También sin cuenta.) */
+export async function top(periodo) {
+  const { limite } = PERIODOS_TOP[periodo];
+  const { data: filas, error } = periodo === 'siempre'
+    ? await db().from('reproducciones').select('audio, veces').gt('veces', 0).order('veces', { ascending: false }).limit(limite)
+    : await db().rpc('top_audios', { p_desde: desdeCuando(periodo).toISOString(), p_limite: limite });
+  if (error) throw traducir(error);
+  const audios = new Map((await audiosPorIds(filas.map((f) => f.audio))).map((a) => [a.id, a]));
+  return filas
+    .map((f) => audios.get(f.audio) && { ...audios.get(f.audio), vecesPeriodo: Number(f.veces) })
+    .filter((a) => a && a.bytes >= MINIMO_BYTES);
+}
+
 /** Suma una reproducción (alguien la escuchó al menos 30 s). */
 export async function contarReproduccion(audio) {
   if (!conectado() || !audio) return;

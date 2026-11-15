@@ -168,14 +168,40 @@ create table if not exists public.reproducciones (
 alter table public.reproducciones enable row level security;
 drop policy if exists "reproducciones: todos las ven" on public.reproducciones;
 create policy "reproducciones: todos las ven" on public.reproducciones for select to anon, authenticated using (true);
+
+-- ---------- Top: cuándo se escuchó cada audio ----------
+-- Cada reproducción deja una "escucha" con su fecha; así se arman los Top de hoy,
+-- la semana, el mes, el año y de siempre. Nadie la lee ni escribe directo: solo las funciones.
+create table if not exists public.escuchas (
+  id      bigint generated always as identity primary key,
+  audio   uuid not null references public.audios (id) on delete cascade,
+  cuando  timestamptz not null default now()
+);
+create index if not exists escuchas_cuando on public.escuchas (cuando);
+alter table public.escuchas enable row level security;
+
 create or replace function public.sumar_reproduccion(p_audio uuid)
 returns void language sql security definer set search_path = public as $$
   insert into public.reproducciones (audio, veces) values (p_audio, 1)
-  on conflict (audio) do update set veces = public.reproducciones.veces + 1
+  on conflict (audio) do update set veces = public.reproducciones.veces + 1;
+  insert into public.escuchas (audio) values (p_audio);
 $$;
 revoke all on function public.sumar_reproduccion(uuid) from public;
 grant execute on function public.sumar_reproduccion(uuid) to authenticated;
 revoke execute on function public.sumar_reproduccion(uuid) from anon;  -- sin cuenta, no suma
+
+-- Los más escuchados desde una fecha (máximo 100).
+create or replace function public.top_audios(p_desde timestamptz, p_limite int default 10)
+returns table (audio uuid, veces bigint)
+language sql stable security definer set search_path = public as $$
+  select e.audio, count(*) as veces
+  from public.escuchas e join public.audios a on a.id = e.audio
+  where e.cuando >= p_desde and a.bytes >= 20480
+  group by e.audio
+  order by veces desc, max(e.cuando) desc
+  limit least(greatest(p_limite, 1), 100)
+$$;
+grant execute on function public.top_audios(timestamptz, int) to anon, authenticated;
 
 -- ---------- "N veces guardada" ----------
 -- Cuántas personas (sin contar al dueño) tienen cada audio en su biblioteca.

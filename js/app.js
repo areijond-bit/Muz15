@@ -3907,6 +3907,8 @@ async function pintarInicio() {
 
   if (!puedeEntrar().si) return;
 
+  el.inicioContenido.append(seccionTop());
+
   // Lo nuevo: de quienes sigues primero, y de todos (también sin cuenta)
   try {
     const [red, nuevos] = await Promise.all([nube.red(), nube.explorar()]);
@@ -3941,6 +3943,92 @@ async function pintarInicio() {
     }
     marcarSonando(reproductor.estado().cancion);
   } catch { /* sin internet: solo tus canciones */ }
+}
+
+/* ---------- Top: los más escuchados ---------- */
+// Hoy · Semana · Mes (del 1 al 10) · Año · Siempre (hasta el 100).
+
+const CLAVE_TOP = 'muz15-top';
+const MOSTRAR_TOP = 10; // los demás (hasta 100), con "Ver los 100"
+
+function seccionTop() {
+  let periodo = 'semana';
+  try { periodo = localStorage.getItem(CLAVE_TOP) || periodo; } catch { /* nada */ }
+  if (!nube.PERIODOS_TOP[periodo]) periodo = 'semana';
+
+  const seccion = document.createElement('section');
+  seccion.className = 'seccion-inicio top';
+  const titulo = document.createElement('h3');
+  titulo.className = 'seccion-inicio__titulo';
+  titulo.textContent = 'Top';
+  const botones = document.createElement('div');
+  botones.className = 'pildoras top__periodos';
+  const estado = document.createElement('p');
+  estado.className = 'espacio';
+  const lista = document.createElement('ol');
+  lista.className = 'lista top__lista';
+  const verTodos = document.createElement('button');
+  verTodos.className = 'boton-ver-todos';
+  verTodos.hidden = true;
+  seccion.append(titulo, botones, estado, lista, verTodos);
+
+  let pedido = 0;
+  const pintar = async () => {
+    for (const b of botones.children) b.classList.toggle('pildora--acento', b.dataset.periodo === periodo);
+    const este = ++pedido;
+    estado.textContent = 'Cargando…';
+    estado.hidden = false;
+    lista.replaceChildren();
+    verTodos.hidden = true;
+    let audios;
+    try {
+      audios = await nube.top(periodo);
+    } catch (error) {
+      if (este === pedido) estado.textContent = `No se pudo cargar: ${error.message}`;
+      return;
+    }
+    if (este !== pedido) return;
+    const vacio = { hoy: 'hoy', semana: 'esta semana', mes: 'este mes', anio: 'este año', siempre: 'todavía' }[periodo];
+    estado.textContent = `Nadie ha escuchado nada ${vacio}. ¡Pon algo a sonar!`;
+    estado.hidden = audios.length > 0;
+    // En el Top, el número de cada fila es el de ese periodo.
+    const canciones = audios.map((a) => ({ ...comoCancion(a), reproducciones: a.vecesPeriodo }));
+    const filas = canciones.map((cancion, i) => {
+      const fila = filaAudio(cancion, canciones, i);
+      const lugar = document.createElement('span');
+      lugar.className = `top__lugar${i < 3 ? ' top__lugar--podio' : ''}`;
+      lugar.textContent = i + 1;
+      fila.prepend(lugar);
+      fila.hidden = i >= MOSTRAR_TOP;
+      return fila;
+    });
+    lista.append(...filas);
+    if (filas.length > MOSTRAR_TOP) {
+      verTodos.hidden = false;
+      verTodos.textContent = `Ver los ${filas.length}`;
+      verTodos.onclick = () => {
+        const abiertos = !filas[MOSTRAR_TOP].hidden;
+        filas.forEach((f, i) => { f.hidden = abiertos && i >= MOSTRAR_TOP; });
+        verTodos.textContent = abiertos ? `Ver los ${filas.length}` : 'Ver menos';
+      };
+    }
+    marcarSonando(reproductor.estado().cancion);
+  };
+
+  for (const [clave, { nombre }] of Object.entries(nube.PERIODOS_TOP)) {
+    const boton = document.createElement('button');
+    boton.className = 'pildora';
+    boton.dataset.periodo = clave;
+    boton.textContent = nombre;
+    boton.addEventListener('click', () => {
+      periodo = clave;
+      try { localStorage.setItem(CLAVE_TOP, clave); } catch { /* nada */ }
+      pintar();
+    });
+    botones.append(boton);
+  }
+  pintar();
+  return seccion;
 }
 
 /* ---------- Crear ---------- */
