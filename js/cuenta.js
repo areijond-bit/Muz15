@@ -26,9 +26,9 @@ export function supabase() {
 
 /** ¿Este Muz15 puede entrar? Si no, el motivo para mostrarlo. */
 export function puedeEntrar() {
-  if (!nubeConfigurada()) return { si: false, motivo: 'Muz15 todavía no está conectado a su nube.' };
+  if (!nubeConfigurada()) return { si: false, motivo: 'Muzzy todavía no está conectado a su nube.' };
   if (esApk && !Capacitor.isPluginAvailable('Cuenta')) {
-    return { si: false, motivo: 'Necesitas la APK nueva para entrar con Google. Ve a Ajustes → Buscar actualizaciones.' };
+    return { si: false, motivo: 'Necesitas la APK nueva para entrar con Google. Ve a Configuración → Buscar actualizaciones.' };
   }
   return { si: true };
 }

@@ -518,10 +518,10 @@ function menuCancion(cancion) {
         ? { icono: 'enlace', texto: `Quitar vínculo con "${porId(cancion.siguienteFija).titulo}"`, alElegir: () => vincular(cancion, null) }
         : { icono: 'enlace', texto: 'Vincular: que siempre siga otra canción', alElegir: () => elegirVinculo(cancion) },
       ...(esMia ? [{
-        texto: 'Borrar de Muz15 para todos',
+        texto: 'Borrar de Muzzy para todos',
         peligro: true,
         alElegir: () => confirmar({
-          titulo: `¿Borrar "${cancion.titulo}" de Muz15?`,
+          titulo: `¿Borrar "${cancion.titulo}" de Muzzy?`,
           subtitulo: 'Desaparece para todos, también de las bibliotecas de tus amigos.',
           textoBoton: 'Borrar para todos',
           alConfirmar: async () => {
@@ -533,7 +533,7 @@ function menuCancion(cancion) {
             await borrarCancionCompleta(cancion, { desdeNube: true });
             reproductor.quitar(cancion.id);
             await recargarLista();
-            mostrarAviso(`"${cancion.titulo}" se borró de Muz15.`, 3000);
+            mostrarAviso(`"${cancion.titulo}" se borró de Muzzy.`, 3000);
           },
         }),
       }] : []),
@@ -1784,7 +1784,7 @@ el.descargarTodas.addEventListener('click', async () => {
 
   confirmar({
     titulo: `¿Descargar ${faltan.length} ${faltan.length === 1 ? 'canción' : 'canciones'}?`,
-    subtitulo: `${peso ? `Son unos ${mb(peso)} MB. ` : ''}Deja Muz15 abierta hasta que termine; la pantalla se mantiene encendida mientras tanto.`,
+    subtitulo: `${peso ? `Son unos ${mb(peso)} MB. ` : ''}Deja Muzzy abierta hasta que termine; la pantalla se mantiene encendida mientras tanto.`,
     textoBoton: 'Descargar',
     alConfirmar: () => descargarVarias(faltan),
   });
@@ -2114,7 +2114,7 @@ async function revisarActualizacion() {
     const numeroUltima = Number(String(ultima.tag_name ?? '').replace(/\D/g, ''));
     if (numeroUltima > versionApk.numero) {
       abrirHoja({
-        titulo: 'Hay una versión nueva de Muz15',
+        titulo: 'Hay una versión nueva de Muzzy',
         subtitulo: 'Se instala encima de la que tienes: no pierdes tus canciones ni tus listas.',
         acciones: [{
           icono: 'descargar',
@@ -2211,9 +2211,10 @@ el.ajustes.addEventListener('click', () => {
   const donde = esApk ? `APK ${versionApk?.nombre ?? ''}`.trim() : 'Navegador (no es la APK)';
   const version = `Estás en: ${donde} · ${cancionesLocales.length} canciones guardadas aquí`;
   abrirHoja({
-    titulo: 'Ajustes',
+    titulo: 'Configuración',
     subtitulo: version,
     acciones: [
+      { icono: 'paleta', texto: `Tema  ·  ${nombreTema()}`, alElegir: abrirTema },
       { icono: 'ecualizador', texto: `Ecualizador${estadoEq.activo ? `  ·  ${nombrePerfil()}` : ''}`, alElegir: abrirEcualizador },
       { icono: 'escudo', texto: `Volumen seguro  ·  ${volumenSeguro.activo ? `${volumenSeguro.db} dB` : 'desactivado'}`, alElegir: abrirVolumenSeguro },
       { icono: 'audifonos', texto: `Modo eco${estadoEco.activo ? '  ·  activado' : ''}`, alElegir: abrirModoEco },
@@ -2224,6 +2225,74 @@ el.ajustes.addEventListener('click', () => {
     ],
   });
 });
+
+/* ---------- Tema (los colores de la app) ---------- */
+// Tres colores: principal (fondo), secundario (letras e íconos) y terciario
+// (botones y detalles, como las "zz"). js/tema.js los aplica al abrir.
+
+const tema = window.muzzyTema;
+const mismoTema = (a, b) => ['fondo', 'texto', 'acento'].every((k) => a[k].toLowerCase() === b[k].toLowerCase());
+const nombreTema = () => tema.TEMAS.find((t) => mismoTema(t, tema.guardado()))?.nombre ?? 'Personalizado';
+
+function abrirTema() {
+  const caja = document.createElement('div');
+  caja.className = 'tema';
+
+  // Temas listos
+  const opciones = document.createElement('div');
+  opciones.className = 'tema__opciones';
+  const pintarOpciones = () => {
+    opciones.replaceChildren(...tema.TEMAS.map((t) => {
+      const boton = document.createElement('button');
+      boton.className = 'tema__opcion';
+      boton.setAttribute('aria-pressed', String(mismoTema(t, tema.guardado())));
+      boton.style.setProperty('--fondo', t.fondo);
+      boton.style.setProperty('--texto', t.texto);
+      boton.style.setProperty('--acento', t.acento);
+      boton.innerHTML = '<span class="tema__muestra"><i></i><i></i><i></i></span><span></span>';
+      boton.lastChild.textContent = t.nombre;
+      boton.addEventListener('click', () => { tema.guardar({ ...t }); pintarTodo(); });
+      return boton;
+    }));
+  };
+
+  // Los tres colores a tu gusto
+  const CAMPOS = [
+    { clave: 'fondo', titulo: 'Principal', detalle: 'El fondo' },
+    { clave: 'texto', titulo: 'Secundario', detalle: 'Letras e íconos' },
+    { clave: 'acento', titulo: 'Terciario', detalle: 'Botones y detalles (las zz)' },
+  ];
+  const campos = document.createElement('div');
+  campos.className = 'tema__campos';
+  const entradas = CAMPOS.map(({ clave, titulo, detalle }) => {
+    const fila = document.createElement('label');
+    fila.className = 'tema__campo';
+    fila.innerHTML = '<span class="tema__textos"><strong></strong><span></span></span><input type="color">';
+    fila.querySelector('strong').textContent = titulo;
+    fila.querySelector('.tema__textos span').textContent = detalle;
+    const entrada = fila.querySelector('input');
+    entrada.addEventListener('input', () => {
+      tema.guardar({ ...tema.guardado(), [clave]: entrada.value });
+      pintarOpciones();
+    });
+    campos.append(fila);
+    return [clave, entrada];
+  });
+
+  const pintarTodo = () => {
+    pintarOpciones();
+    const actual = tema.guardado();
+    for (const [clave, entrada] of entradas) entrada.value = actual[clave];
+    colorDePortada(el.portada.src).then((color) => el.barraReproductor.style.setProperty('--color-portada', color ?? '#2a2a2a'));
+  };
+  pintarTodo();
+
+  const subtitulo = document.createElement('p');
+  subtitulo.className = 'tema__subtitulo';
+  subtitulo.textContent = 'O elige tus propios colores:';
+  caja.append(opciones, subtitulo, campos);
+  abrirHoja({ titulo: 'Tema', subtitulo: 'Los colores de tu Muzzy (solo en este dispositivo).', contenido: caja });
+}
 
 /* ---------- Quitar repetidas ---------- */
 // Dos canciones son "la misma" si su título coincide quitando lo que va entre
@@ -2451,7 +2520,7 @@ function abrirModoEco() {
   if (!hayReproductorNativo) {
     abrirHoja({
       titulo: 'Modo eco',
-      subtitulo: 'Solo funciona en la APK nueva de Muz15 (con el reproductor nativo). Actualízala desde Ajustes → Buscar actualizaciones.',
+      subtitulo: 'Solo funciona en la APK nueva de Muzzy (con el reproductor nativo). Actualízala desde Configuración → Buscar actualizaciones.',
     });
     return;
   }
@@ -2652,7 +2721,7 @@ function calibrarVolumenSeguro() {
         }
         volumenSeguro = { ...volumenSeguro, activo: true, referencia };
         aplicarVolumenSeguro();
-        mostrarAviso(`Calibrado: tus audífonos dan unos ${volumenSeguro.referencia} dB al máximo. Ahora ${volumenSeguro.db} dB en Muz15 ≈ ${volumenSeguro.db} dB en tu app.`, 7000);
+        mostrarAviso(`Calibrado: tus audífonos dan unos ${volumenSeguro.referencia} dB al máximo. Ahora ${volumenSeguro.db} dB en Muzzy ≈ ${volumenSeguro.db} dB en tu app.`, 7000);
       },
     },
   });
@@ -2954,7 +3023,7 @@ function ofrecerCuenta() {
   const { si, motivo } = puedeEntrar();
   let cerrar = () => {};
   cerrar = abrirHoja({
-    titulo: 'Tu cuenta de Muz15',
+    titulo: 'Tu cuenta de Muzzy',
     subtitulo: si
       ? 'Entra con Google: tu música, tus listas y tu perfil quedan iguales en el cel y en la PC (aunque esté apagada), y ves lo que suben tus amigos.'
       : motivo,
@@ -3080,7 +3149,7 @@ function pedirPerfil() {
 
   cerrar = abrirHoja({
     titulo: actual ? 'Editar perfil' : 'Crea tu perfil',
-    subtitulo: actual ? undefined : 'Así te van a ver tus amigos en Muz15.',
+    subtitulo: actual ? undefined : 'Así te van a ver tus amigos en Muzzy.',
     contenido: formulario,
   });
 }
@@ -3449,9 +3518,9 @@ async function cambiarSeguir(perfil, loSigo) {
 /** Enlace a tu perfil (o al de un amigo): al abrirlo, Muz15 va directo a ese perfil. */
 async function compartirPerfil(perfil) {
   const enlace = `${location.origin}${location.pathname}?perfil=${encodeURIComponent(perfil.usuario)}`;
-  const texto = `Escucha lo que sube @${perfil.usuario} en Muz15`;
+  const texto = `Escucha lo que sube @${perfil.usuario} en Muzzy`;
   try {
-    if (navigator.share) return await navigator.share({ title: 'Muz15', text: texto, url: enlace });
+    if (navigator.share) return await navigator.share({ title: 'Muzzy', text: texto, url: enlace });
   } catch (error) {
     if (error.name === 'AbortError') return;
   }
@@ -3482,7 +3551,7 @@ function menuMiCuenta() {
     acciones: [
       { icono: 'telefono', texto: `Nombre de este dispositivo  ·  ${nube.dispositivo().nombre}`, alElegir: renombrarEsteDispositivo },
       { icono: 'actualizar', texto: 'Sincronizar ahora', alElegir: sincronizarAhora },
-      { icono: 'ajustes', texto: 'Ajustes', alElegir: () => el.ajustes.click() },
+      { icono: 'ajustes', texto: 'Configuración', alElegir: () => el.ajustes.click() },
       {
         icono: 'salir',
         texto: 'Cerrar sesión',
@@ -3512,7 +3581,7 @@ function pintarPerfilSinCuenta() {
   const dato = document.createElement('p');
   dato.className = 'perfil-hoja__dato';
   const { si, motivo } = puedeEntrar();
-  titulo.textContent = usuarioNube ? 'Te falta tu perfil' : 'Tu cuenta de Muz15';
+  titulo.textContent = usuarioNube ? 'Te falta tu perfil' : 'Tu cuenta de Muzzy';
   dato.textContent = !si ? motivo
     : usuarioNube ? 'Elige tu nombre de usuario y tu foto.'
       : 'Entra con Google: tu música, tus listas y tu perfil iguales en el cel y en la PC, y lo que suben tus amigos.';
@@ -3526,7 +3595,7 @@ function pintarPerfilSinCuenta() {
   } else if (si) {
     tarjeta.append(botonGoogle());
   }
-  caja.replaceChildren(tarjeta, listaDeAcciones([{ icono: 'ajustes', texto: 'Ajustes', alElegir: () => el.ajustes.click() }]));
+  caja.replaceChildren(tarjeta, listaDeAcciones([{ icono: 'ajustes', texto: 'Configuración', alElegir: () => el.ajustes.click() }]));
 }
 
 /* ---------- Inicio ---------- */
@@ -3624,7 +3693,7 @@ async function pintarInicio() {
       const lista = document.createElement('ul');
       lista.className = 'lista';
       lista.append(...todos.map((cancion, i) => filaAudio(cancion, todos, i)));
-      el.inicioContenido.append(seccionInicio('Nuevo en Muz15', lista));
+      el.inicioContenido.append(seccionInicio('Nuevo en Muzzy', lista));
     }
     if (!yoSigo.size && red.perfiles.size > 1) {
       const ir = botonPerfil('Busca a tus amigos', { acento: true, alTocar: () => mostrarVista('explorar') });
@@ -3858,16 +3927,16 @@ function menuAudio(cancion) {
         ? [{ icono: 'persona', texto: `Ver perfil de @${cancion.duenoUsuario}`, alElegir: () => abrirPerfil(cancion.perfilDueno) }]
         : []),
       ...(mia ? [{
-        texto: 'Borrar de Muz15 para todos',
+        texto: 'Borrar de Muzzy para todos',
         peligro: true,
         alElegir: () => confirmar({
-          titulo: `¿Borrar "${cancion.titulo}" de Muz15?`,
+          titulo: `¿Borrar "${cancion.titulo}" de Muzzy?`,
           subtitulo: 'Desaparece para todos, también de las bibliotecas de tus amigos.',
           textoBoton: 'Borrar para todos',
           alConfirmar: async () => {
             try {
               await nube.borrarParaTodos(cancion.idNube);
-              mostrarAviso(`"${cancion.titulo}" se borró de Muz15.`, 3000);
+              mostrarAviso(`"${cancion.titulo}" se borró de Muzzy.`, 3000);
               abrirExplorar();
             } catch (error) {
               mostrarAviso(`No se pudo borrar: ${error.message}`, 4000);
@@ -3920,7 +3989,7 @@ if ('serviceWorker' in navigator) {
     const aplicar = () => { recargando = true; location.reload(); };
     if (!reproductor.estado().sonando) return aplicar();
     abrirHoja({
-      titulo: 'Hay mejoras nuevas en Muz15',
+      titulo: 'Hay mejoras nuevas en Muzzy',
       subtitulo: 'Se aplican en un segundo (la canción se detiene).',
       acciones: [{ icono: 'actualizar', texto: 'Actualizar ahora', alElegir: aplicar }],
     });
@@ -3962,7 +4031,7 @@ function avisarSiEsLaVersionDeChrome() {
   const instaladaDesdeChrome = matchMedia('(display-mode: standalone)').matches;
   if (esApk || !esAndroid || !instaladaDesdeChrome) return;
   abrirHoja({
-    titulo: 'Estás en la Muz15 de Chrome',
+    titulo: 'Estás en la Muzzy de Chrome',
     subtitulo: 'Esta NO es la APK. Son dos apps distintas y cada una guarda sus propias canciones; '
       + 'por eso a veces parece que se borraron. Usa la APK y quita esta de tu pantalla de inicio '
       + '(mantén presionado el ícono → Desinstalar).',

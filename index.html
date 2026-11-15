@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Muz15</title>
+  <title>Muzzy</title>
   <meta name="description" content="Mi música, sin internet.">
 
   <!-- Instalación como app (Android y iPhone) -->
@@ -13,10 +13,12 @@
   <link rel="apple-touch-icon" href="icons/icono-180.png">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Muz15">
+  <meta name="apple-mobile-web-app-title" content="Muzzy">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
   <link rel="stylesheet" href="styles.css">
+  <!-- Tus colores (Ajustes → Tema), antes de pintar nada -->
+  <script src="js/tema.js"></script>
   <!-- Cliente de Supabase (la nube de Muz15): deja window.supabase -->
   <script src="js/vendor/supabase.js"></script>
 
@@ -34,13 +36,12 @@
 <body>
   <!-- Los <span data-icono="…"> se llenan con íconos dibujados (js/iconos.js) -->
   <header class="cabecera">
-    <h1 class="marca">Muz<span class="marca__numero">15</span></h1>
-    <button id="ajustes" class="boton-icono" aria-label="Ajustes"><span data-icono="ajustes"></span></button>
-    <label class="boton-icono" aria-label="Importar canciones del teléfono">
-      <span data-icono="subir"></span>
-      <input id="importar" type="file" accept="audio/*,video/mp4,video/quicktime,.mp3,.m4a,.aac,.wav,.mp4,.m4v,.mov" multiple hidden>
-    </label>
+    <h1 class="marca">Mu<span class="marca__zz">zz</span>y</h1>
+    <!-- La ruedita: configuración (subir audios ahora está en Crear) -->
+    <button id="ajustes" class="boton-icono" aria-label="Configuración"><span data-icono="ajustes"></span></button>
   </header>
+  <!-- Elegir archivos para subir (lo abre Crear → Subir audios) -->
+  <input id="importar" type="file" accept="audio/*,video/mp4,video/quicktime,.mp3,.m4a,.aac,.wav,.mp4,.m4v,.mov" multiple hidden>
 
   <p id="aviso" class="aviso" role="status" hidden></p>
 

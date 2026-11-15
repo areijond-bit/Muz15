@@ -4,15 +4,17 @@
    ========================================================= */
 :root {
   /* Colores */
-  --color-fondo: #000000;
-  --color-superficie: #121212;
-  --color-superficie-activa: #1f1f1f;
-  --color-texto: #ffffff;
-  --color-texto-suave: #a7a7a7;
-  --color-acento: #a8ff1a;          /* verde lima: el "15" y los botones principales */
+  /* Los 3 colores del tema (Configuración → Tema; js/tema.js los cambia) */
+  --color-fondo: #000000;           /* principal */
+  --color-texto: #ffffff;           /* secundario */
+  --color-acento: #a8ff1a;          /* terciario: las "zz" y los botones principales */
   --color-texto-sobre-acento: #000000;
+  /* Los demás salen de mezclar esos (así sirven con cualquier tema) */
+  --color-superficie: color-mix(in srgb, var(--color-texto) 7%, var(--color-fondo));
+  --color-superficie-activa: color-mix(in srgb, var(--color-texto) 12%, var(--color-fondo));
+  --color-texto-suave: color-mix(in srgb, var(--color-texto) 65%, var(--color-fondo));
+  --color-borde: color-mix(in srgb, var(--color-texto) 15%, var(--color-fondo));
   --color-peligro: #ff4d6d;
-  --color-borde: #262626;
 
   /* Tipografía */
   --fuente: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -97,7 +99,7 @@ button { font: inherit; color: inherit; }
   letter-spacing: -0.02em;
 }
 
-.marca__numero { color: var(--color-acento); }
+.marca__zz { color: var(--color-acento); }
 
 /* Título grande de cada sección, con sus botones a la derecha */
 .encabezado-vista {
@@ -159,13 +161,13 @@ button { font: inherit; color: inherit; }
   padding: 10px var(--espacio-m);
   border: 0;
   border-radius: var(--radio-redondo);
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--color-texto) 10%, transparent);
   color: var(--color-texto);
   font-size: var(--texto-s);
   font-weight: var(--peso-fuerte);
   cursor: pointer;
 }
-.pildora:active { background: rgba(255, 255, 255, 0.18); }
+.pildora:active { background: color-mix(in srgb, var(--color-texto) 18%, transparent); }
 .pildora--ancha { width: 100%; margin: var(--espacio-s) 0; }
 .pildora--acento { background: var(--color-acento); color: var(--color-texto-sobre-acento); }
 
@@ -235,7 +237,7 @@ button { font: inherit; color: inherit; }
   min-height: var(--alto-navegacion);
   padding-bottom: env(safe-area-inset-bottom);
   /* Se desvanece hacia arriba sobre la lista */
-  background: linear-gradient(to top, var(--color-fondo) 70%, rgba(0, 0, 0, 0));
+  background: linear-gradient(to top, var(--color-fondo) 70%, color-mix(in srgb, var(--color-fondo) 0%, transparent));
 }
 
 .pestana {
@@ -329,8 +331,8 @@ button { font: inherit; color: inherit; }
   margin: 0;
   padding: 12px var(--espacio-m);
   border-radius: var(--radio-s);
-  background: #e8e8e8;
-  color: #000;
+  background: var(--color-texto);
+  color: var(--color-fondo);
   font-size: var(--texto-s);
   font-weight: 600;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
@@ -372,7 +374,7 @@ button { font: inherit; color: inherit; }
   align-self: stretch;
   display: grid;
   place-items: center;
-  color: #4d4d4d;
+  color: color-mix(in srgb, var(--color-texto) 30%, var(--color-fondo));
   cursor: grab;
   touch-action: none;   /* que el dedo arrastre la fila y no la página */
   user-select: none;
@@ -1157,3 +1159,39 @@ button { font: inherit; color: inherit; }
 .album-perfil .mosaico { width: 200px; height: 200px; }
 .album-perfil .cabecera-lista__acciones { width: 100%; }
 .album-perfil__dueno { display: flex; align-items: center; gap: var(--espacio-s); border: 0; background: transparent; color: var(--color-texto); font: inherit; font-size: var(--texto-s); font-weight: var(--peso-fuerte); cursor: pointer; }
+
+/* El reproductor flotante siempre es oscuro (toma el color de la portada): letras blancas */
+.reproductor { color: #fff; }
+.reproductor .boton-icono { color: #fff; }
+.reproductor__progreso { background: linear-gradient(to right, #fff var(--avance, 0%), rgba(255, 255, 255, 0.25) var(--avance, 0%)); }
+
+/* Configuración → Tema */
+.tema { padding-bottom: var(--espacio-m); }
+.tema__opciones { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--espacio-s); }
+.tema__opcion {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px;
+  border: 2px solid var(--color-borde);
+  border-radius: var(--radio-m);
+  background: var(--fondo);
+  color: var(--texto);
+  font: inherit;
+  font-size: var(--texto-xs);
+  font-weight: var(--peso-fuerte);
+  cursor: pointer;
+}
+.tema__opcion[aria-pressed="true"] { border-color: var(--color-acento); }
+.tema__muestra { display: flex; gap: 4px; }
+.tema__muestra i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--texto) 30%, transparent); }
+.tema__muestra i:nth-child(1) { background: var(--fondo); }
+.tema__muestra i:nth-child(2) { background: var(--texto); }
+.tema__muestra i:nth-child(3) { background: var(--acento); }
+.tema__subtitulo { margin: var(--espacio-m) 0 var(--espacio-s); color: var(--color-texto-suave); font-size: var(--texto-s); }
+.tema__campos { display: flex; flex-direction: column; gap: var(--espacio-s); }
+.tema__campo { display: flex; align-items: center; justify-content: space-between; gap: var(--espacio-m); padding: 6px 0; cursor: pointer; }
+.tema__textos { display: flex; flex-direction: column; }
+.tema__textos span { color: var(--color-texto-suave); font-size: var(--texto-xs); }
+.tema__campo input[type="color"] { width: 48px; height: 36px; padding: 0; border: 1px solid var(--color-borde); border-radius: var(--radio-s); background: transparent; cursor: pointer; }

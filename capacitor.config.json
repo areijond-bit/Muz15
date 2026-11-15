@@ -1,6 +1,6 @@
 {
   "appId": "com.areijond.muz15",
-  "appName": "Muz15",
+  "appName": "Muzzy",
   "webDir": "nativo/sin-conexion",
   "server": {
     "url": "https://areijond-bit.github.io/Muz15/",

@@ -317,7 +317,7 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
 
   function actualizarMediaSession(cancion) {
     const portada = portadaActual();
-    const datos = { title: cancion.titulo, artist: cancion.artista, album: cancion.album || 'Muz15' };
+    const datos = { title: cancion.titulo, artist: cancion.artista, album: cancion.album || 'Muzzy' };
 
     if (SesionNativa) {
       // Primero sin portada (para que el título salga ya) y luego con ella.

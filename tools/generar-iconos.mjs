@@ -1,4 +1,4 @@
-// generar-iconos.mjs — Crea los íconos placeholder de Muz15 sin instalar nada.
+// generar-iconos.mjs — Crea los íconos placeholder de Muzzy sin instalar nada.
 // Uso:  node tools/generar-iconos.mjs
 // Cuando tengas tus íconos diseñados, reemplaza los PNG de /icons y borra este archivo.
 
@@ -10,11 +10,8 @@ const ACENTO = [0xa8, 0xff, 0x1a];
 const BLANCO = [0xf4, 0xf4, 0xf6];
 const MUESTREO = 4; // dibujamos 4 veces más grande y reducimos: bordes suaves
 
-// Dígitos en una cuadrícula de 5x7 (1 = relleno).
-const DIGITOS = {
-  1: ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
-  5: ['11111', '10000', '11110', '00001', '00001', '10001', '01110'],
-};
+// La "z" de Muzzy en una cuadrícula de 5x7 (1 = relleno).
+const ZETA = ['11111', '00001', '00010', '00100', '01000', '10000', '11111'];
 
 function lienzo(tamano) {
   const t = tamano * MUESTREO;
@@ -78,8 +75,8 @@ function crc32(buf) {
   return ~c >>> 0;
 }
 
-// Ícono de la app: "15" en el color de acento sobre fondo oscuro.
-// "celda" = tamaño de cada cuadrito del dígito (más chico = "15" más chico).
+// Ícono de la app: "zz" en el color de acento sobre fondo oscuro.
+// "celda" = tamaño de cada cuadrito de la letra (más chico = "zz" más chico).
 function icono(tamano, celda = 0.058) {
   const l = lienzo(tamano);
   l.pintar(() => FONDO);
@@ -90,8 +87,7 @@ function icono(tamano, celda = 0.058) {
     const fila = Math.floor((y - y0) / celda);
     const col = Math.floor((x - x0) / celda);
     if (fila < 0 || fila > 6 || col < 0 || col > 10 || col === 5) return null;
-    const digito = col < 5 ? DIGITOS[1] : DIGITOS[5];
-    return digito[fila][col < 5 ? col : col - 6] === '1' ? ACENTO : null;
+    return ZETA[fila][col < 5 ? col : col - 6] === '1' ? ACENTO : null;
   });
   return png(tamano, l.reducir());
 }
@@ -115,7 +111,7 @@ writeFileSync('icons/portada.png', portada(512));
 console.log('Íconos creados en /icons');
 
 // APK de Android: un ícono por densidad de pantalla. El "foreground" es la capa
-// del ícono adaptable; Android le recorta los bordes, así que el "15" va más chico.
+// del ícono adaptable; Android le recorta los bordes, así que el "zz" va más chico.
 const RES = 'android/app/src/main/res';
 const DENSIDADES = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
 for (const [densidad, escala] of Object.entries(DENSIDADES)) {
@@ -125,7 +121,7 @@ for (const [densidad, escala] of Object.entries(DENSIDADES)) {
   writeFileSync(`${carpeta}/ic_launcher_round.png`, icono(48 * escala));
   writeFileSync(`${carpeta}/ic_launcher_foreground.png`, icono(108 * escala, 0.04));
 }
-// Pantalla de carga: negra con el "15".
+// Pantalla de carga: negra con el "zz".
 for (const carpeta of ['drawable', ...Object.keys(DENSIDADES).flatMap((d) => [`drawable-port-${d}`, `drawable-land-${d}`])]) {
   writeFileSync(`${RES}/${carpeta}/splash.png`, icono(480, 0.025));
 }

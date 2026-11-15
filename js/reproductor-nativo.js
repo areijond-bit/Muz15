@@ -84,7 +84,7 @@ export function crearReproductorNativo({ fuente, alCambiar, alProgreso, alFallar
       const canciones = await Promise.all(orden.map(async (i) => {
         const c = lista[i];
         const { url, portada } = await fuente(c);
-        return { id: c.id, url, titulo: c.titulo, artista: c.artista, album: c.album || 'Muz15', portada };
+        return { id: c.id, url, titulo: c.titulo, artista: c.artista, album: c.album || 'Muzzy', portada };
       }));
       indice = desde;
       urlPortada = (await fuente(lista[desde])).portadaPantalla;
