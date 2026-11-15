@@ -32,7 +32,7 @@ grant execute on function public.sumar_reproduccion(uuid, text) to anon, authent
 -- + qué tan popular es este mes + qué tan nuevo es
 -- - lo que ya escuchaste mucho;   + un poco de azar para descubrir cosas.
 -- Fuera: lo tuyo, lo que ya guardaste, lo que marcaste con no me gusta.
--- Variedad: máximo 3 por artista.
+-- Variedad: primero máximo 3 por artista; si faltan, se rellena con las demás.
 create or replace function public.recomendaciones(p_dispositivo text, p_limite int default 20)
 returns table (audio uuid, puntos double precision, razon text)
 language sql security definer set search_path = public as $$
@@ -127,8 +127,7 @@ variados as (
   from puntuados p
 )
 select v.id, v.puntos, v.razon from variados v
-where v.n_artista <= 3
-order by v.puntos desc
+order by (v.n_artista > 3), v.puntos desc  -- primero la variedad; luego se rellena
 limit least(greatest(p_limite, 1), 50)
 $$;
 revoke all on function public.recomendaciones(text, int) from public;
