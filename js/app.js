@@ -20,7 +20,7 @@ import { esApk, AppNativa } from './nativo.js';
 import { crearEcualizador, BANDAS, PERFILES, MAXIMO_DB, OPCIONES_TOPE_DB } from './ecualizador.js';
 import {
   puedeEntrar, puedeEntrarConGoogle, entrar, salir, alCambiarSesion,
-  entrarConCorreo, crearCuenta, recuperarContrasena, cambiarContrasena,
+  entrarConCorreo, crearCuenta, recuperarContrasena, cambiarContrasena, errorAlRegresar,
 } from './cuenta.js';
 import * as nube from './nube.js';
 import { abrirRecortador } from './recortar.js';
@@ -3051,6 +3051,8 @@ function programarRecarga() {
 
 function iniciarCuenta() {
   pintarBotonPerfil();
+  const errorGoogle = errorAlRegresar();
+  if (errorGoogle) setTimeout(() => mostrarAviso(`No se pudo entrar: ${errorGoogle}. Intenta otra vez.`, 8000), 500);
   nube.iniciar({
     audioDe: audioParaSubir,
     borrarLocal: async (cancion) => {
@@ -3233,19 +3235,39 @@ function botonGoogle(alTerminar) {
   boton.innerHTML = `${LOGO_GOOGLE}<span>Entrar con Google</span>`;
   boton.addEventListener('click', async () => {
     boton.disabled = true;
-    await entrarConGoogle();
+    boton.classList.add('cargando');
+    boton.lastChild.textContent = 'Abriendo Google…';
+    const sigue = await entrarConGoogle();
+    // En el navegador la página se va a Google: el botón se queda bloqueado para no
+    // empezar dos entradas a la vez. En la APK (o si falló) vuelve a estar listo.
+    if (sigue === 'se-fue') return;
     boton.disabled = false;
+    boton.classList.remove('cargando');
+    boton.lastChild.textContent = 'Entrar con Google';
     alTerminar?.();
   });
   return boton;
 }
 
+let entrandoConGoogle = false;
+/** @returns 'se-fue' si la página se va a Google (navegador) */
 async function entrarConGoogle() {
-  if (!puedeEntrarConGoogle()) return mostrarAviso('Para entrar con Google necesitas la APK nueva (Configuración → Buscar actualizaciones). O entra con tu correo.', 6000);
+  if (!puedeEntrarConGoogle()) {
+    mostrarAviso('Para entrar con Google necesitas la APK nueva (Configuración → Buscar actualizaciones). O entra con tu correo.', 6000);
+    return null;
+  }
+  if (entrandoConGoogle) return 'se-fue';
+  entrandoConGoogle = true;
   try {
-    await entrar(); // en el navegador la página se va a Google y regresa sola
+    const usuario = await entrar();
+    if (!esApk && !usuario) return 'se-fue'; // la página se va a Google y regresa sola
+    return null;
   } catch (error) {
-    if (error.code !== 'CANCELADO') mostrarAviso(`No se pudo entrar: ${error.message}`, 6000);
+    if (error.code !== 'CANCELADO') mostrarAviso(`No se pudo entrar con Google: ${error.message}`, 8000);
+    return null;
+  } finally {
+    // Si la página no se fue (APK o error), se puede volver a intentar.
+    setTimeout(() => { entrandoConGoogle = false; }, esApk ? 0 : 8000);
   }
 }
 

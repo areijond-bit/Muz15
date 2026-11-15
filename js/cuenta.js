@@ -18,7 +18,9 @@ let cliente = null;
 export function supabase() {
   if (!cliente && nubeConfigurada() && window.supabase) {
     cliente = window.supabase.createClient(SUPABASE_URL, SUPABASE_LLAVE_PUBLICA, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'pkce' },
+      // 'implicit': Google regresa con la sesión en la dirección. (Con 'pkce', si se tocaba "Entrar"
+      // dos veces o había dos pestañas, la segunda llave pisaba a la primera y fallaba.)
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'implicit' },
     });
   }
   return cliente;
@@ -103,13 +105,25 @@ export async function entrar() {
   if (esApk) {
     const { token } = await CuentaNativa.entrar({ clienteWeb: GOOGLE_CLIENTE_WEB });
     const { data, error } = await db.auth.signInWithIdToken({ provider: 'google', token });
-    if (error) throw error;
+    if (error) throw enEspanol(error);
     return data.user;
   }
   const regreso = location.origin + location.pathname;
   const { error } = await db.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: regreso } });
   if (error) throw error;
   return null; // la página se va a Google
+}
+
+/**
+ * Si al regresar de Google algo falló, Supabase lo deja en la dirección
+ * (#error_description=… o ?error_description=…). Devuelve el mensaje y limpia la dirección.
+ */
+export function errorAlRegresar() {
+  const datos = new URLSearchParams(location.hash.slice(1) || location.search.slice(1));
+  const error = datos.get('error_description') || datos.get('error');
+  if (!error) return null;
+  history.replaceState(null, '', location.pathname);
+  return error.replace(/\+/g, ' ');
 }
 
 /** Salir en este dispositivo (tus canciones descargadas se quedan). */
