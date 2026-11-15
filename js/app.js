@@ -112,6 +112,8 @@ const el = {
   pantallaTitulo: $('pantalla-titulo'),
   pantallaArtista: $('pantalla-artista'),
   pantallaSubio: $('pantalla-subio'),
+  vistaArtista: $('vista-artista'),
+  artistaContenido: $('artista-contenido'),
   pantallaGuardar: $('pantalla-guardar'),
   pantallaProgreso: $('pantalla-progreso'),
   pantallaActual: $('pantalla-actual'),
@@ -1667,6 +1669,8 @@ function mostrarVista(vista) {
   el.vistaServidor.hidden = vista !== 'servidor';
   el.vistaExplorar.hidden = vista !== 'explorar';
   el.vistaPerfil.hidden = vista !== 'perfil';
+  el.vistaArtista.hidden = vista !== 'artista';
+  if (vista !== 'artista') vistaAntesDeArtista = vista;
   el.cabeceraBiblioteca.hidden = !enBiblioteca;
   if (vista === 'inicio') pintarInicio();
   if (vista === 'perfil') pintarVistaPerfil();
@@ -2184,6 +2188,7 @@ AppNativa?.addListener('backButton', () => {
     listaAbierta = null;
     return pintarListas();
   }
+  if (vistaActual === 'artista') return mostrarVista(vistaAntesDeArtista === 'artista' ? 'inicio' : vistaAntesDeArtista);
   if (vistaActual === 'perfil' && albumVisto) { albumVisto = null; return pintarVistaPerfil(); }
   if (vistaActual === 'perfil' && perfilVisto) return abrirPerfil(null);
   if (vistaActual !== 'inicio') return mostrarVista('inicio');
@@ -3994,11 +3999,7 @@ function seccionTop() {
     // En el Top, el número de cada fila es el de ese periodo.
     const canciones = audios.map((a) => ({ ...comoCancion(a), reproducciones: a.vecesPeriodo }));
     const filas = canciones.map((cancion, i) => {
-      const fila = filaAudio(cancion, canciones, i);
-      const lugar = document.createElement('span');
-      lugar.className = `top__lugar${i < 3 ? ' top__lugar--podio' : ''}`;
-      lugar.textContent = i + 1;
-      fila.prepend(lugar);
+      const fila = filaAudio(cancion, canciones, i, { lugar: i + 1 });
       fila.hidden = i >= MOSTRAR_TOP;
       return fila;
     });
@@ -4238,6 +4239,7 @@ const comoCancion = (audio) => ({
   duenoUsuario: audio.perfil?.usuario ?? null,
   perfilDueno: audio.perfil ?? null,
   reproducciones: audio.conteo?.veces ?? 0,
+  duracion: audio.duracion ?? null,
 });
 
 /** "1 reproducción", "250 reproducciones", "1.2 mil reproducciones" */
@@ -4253,17 +4255,157 @@ function pintarExplorar() {
   marcarSonando(reproductor.estado().cancion);
 }
 
-/** Una canción de la nube en una lista: portada, título, artista · @dueño, guardar y menú. */
-function filaAudio(cancion, canciones, i) {
+const mmssLista = (segundos) => {
+  if (!segundos) return '';
+  const s = Math.round(segundos);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+const numeroLargo = new Intl.NumberFormat('es-MX');
+
+/**
+ * Una canción de la nube, como "Populares" de Spotify:
+ *   [lugar] portada  Título            reproducciones  ✓/⬇  3:32  ⋮
+ *                    Artista · @usuario
+ * Tocar el artista abre todas sus canciones; tocar el @ abre el perfil de quien la subió.
+ */
+function filaAudio(cancion, canciones, i, { lugar = null } = {}) {
+  const li = document.createElement('li');
+  li.className = 'cancion cancion--popular';
+  li.dataset.id = cancion.id;
+
+  if (lugar != null) {
+    const numero = document.createElement('span');
+    numero.className = `popular__lugar${lugar <= 3 ? ' popular__lugar--podio' : ''}`;
+    numero.textContent = lugar;
+    li.append(numero);
+  }
+  li.append(crearPortada(cancion.portadaUrl ?? 'icons/portada.png', 'cancion__portada'));
+
+  const info = document.createElement('div');
+  info.className = 'cancion__info';
+  const titulo = document.createElement('p');
+  titulo.className = 'cancion__titulo';
+  titulo.textContent = cancion.titulo;
+  const linea = document.createElement('p');
+  linea.className = 'cancion__artista popular__linea';
+  if (cancion.artista) {
+    const artista = document.createElement('button');
+    artista.className = 'popular__enlace';
+    artista.textContent = cancion.artista;
+    artista.addEventListener('click', (evento) => { evento.stopPropagation(); abrirArtista(cancion.artista); });
+    linea.append(artista);
+  }
+  if (cancion.duenoUsuario) {
+    if (cancion.artista) linea.append(Object.assign(document.createElement('span'), { textContent: '·', className: 'popular__punto' }));
+    const usuario = document.createElement('button');
+    usuario.className = 'popular__enlace popular__usuario';
+    usuario.textContent = `@${cancion.duenoUsuario}`;
+    usuario.addEventListener('click', (evento) => {
+      evento.stopPropagation();
+      abrirPerfil(cancion.perfilDueno ?? { id: cancion.dueno, usuario: cancion.duenoUsuario });
+    });
+    linea.append(usuario);
+  }
+  info.append(titulo, linea);
+
+  const veces = document.createElement('span');
+  veces.className = 'popular__veces';
+  veces.textContent = numeroLargo.format(cancion.reproducciones ?? 0);
+  veces.title = textoReproducciones(cancion.reproducciones);
+
+  const duracion = document.createElement('span');
+  duracion.className = 'popular__duracion';
+  duracion.textContent = mmssLista(cancion.duracion);
+
+  li.append(info, veces, botonGuardarAudio(cancion), duracion, botonMenu(cancion, () => menuAudio(cancion)));
+  li.addEventListener('click', () => { listaQueSuena = null; reproductor.reproducirLista(canciones, i); });
+  return li;
+}
+
+/* ---------- Página de un artista ---------- */
+
+let vistaAntesDeArtista = 'inicio';
+let pidiendoArtista = 0;
+
+async function abrirArtista(nombre) {
+  mostrarVista('artista');
+  const caja = el.artistaContenido;
+  const este = ++pidiendoArtista;
+  caja.replaceChildren(textoCargando());
+  let audios;
+  try {
+    audios = await nube.audiosDeArtista(nombre);
+  } catch (error) {
+    if (este === pidiendoArtista) caja.replaceChildren(textoCargando(`No se pudo cargar: ${error.message}`));
+    return;
+  }
+  if (este !== pidiendoArtista) return;
+  // Las más escuchadas primero (como "Populares").
+  const canciones = audios.map(comoCancion).sort((a, b) => (b.reproducciones ?? 0) - (a.reproducciones ?? 0));
+  const total = canciones.reduce((suma, c) => suma + (c.reproducciones ?? 0), 0);
+  const personas = new Set(canciones.map((c) => c.dueno)).size;
+
+  const barra = document.createElement('div');
+  barra.className = 'perfil-barra';
+  const atras = document.createElement('button');
+  atras.className = 'boton-icono';
+  atras.setAttribute('aria-label', 'Volver');
+  atras.innerHTML = icono('atras');
+  atras.addEventListener('click', () => mostrarVista(vistaAntesDeArtista === 'artista' ? 'inicio' : vistaAntesDeArtista));
+  barra.append(atras);
+
+  const cabecera = document.createElement('div');
+  cabecera.className = 'artista-cabecera';
+  const nombreEl = document.createElement('h2');
+  nombreEl.className = 'artista-cabecera__nombre';
+  nombreEl.textContent = canciones[0]?.artista ?? nombre;
+  const meta = document.createElement('p');
+  meta.className = 'artista-cabecera__meta';
+  meta.textContent = [
+    `${canciones.length} ${canciones.length === 1 ? 'canción' : 'canciones'}`,
+    textoReproducciones(total),
+    personas > 1 ? `subidas por ${personas} personas` : '',
+  ].filter(Boolean).join(' · ');
   const acciones = document.createElement('div');
-  acciones.className = 'cancion__acciones';
-  acciones.append(botonGuardarAudio(cancion), botonMenu(cancion, () => menuAudio(cancion)));
-  const vista = {
-    ...cancion,
-    artista: [cancion.artista, cancion.duenoUsuario && `@${cancion.duenoUsuario}`, textoReproducciones(cancion.reproducciones)].filter(Boolean).join(' · '),
-  };
-  return crearFila(vista, cancion.portadaUrl ?? 'icons/portada.png', acciones,
-    () => { listaQueSuena = null; reproductor.reproducirLista(canciones, i); });
+  acciones.className = 'cabecera-lista__acciones';
+  const aleatorio = document.createElement('button');
+  aleatorio.className = 'boton-icono boton-icono--modo';
+  aleatorio.setAttribute('aria-label', 'Aleatorio');
+  aleatorio.innerHTML = icono('aleatorio', 28);
+  aleatorio.addEventListener('click', () => el.aleatorio.click());
+  const play = document.createElement('button');
+  play.className = 'boton-play';
+  play.setAttribute('aria-label', `Reproducir ${nombre}`);
+  play.innerHTML = icono('play', 28);
+  play.addEventListener('click', () => { if (canciones.length) { listaQueSuena = null; reproductor.reproducirLista(canciones, 0); } });
+  const espaciador = document.createElement('span');
+  espaciador.className = 'espaciador';
+  acciones.append(espaciador, aleatorio, play);
+  cabecera.append(nombreEl, meta, acciones);
+
+  const titulo = document.createElement('h3');
+  titulo.className = 'seccion-perfil__titulo';
+  titulo.textContent = 'Populares';
+  const lista = document.createElement('ol');
+  lista.className = 'lista top__lista';
+  const filas = canciones.map((cancion, i) => filaAudio(cancion, canciones, i, { lugar: i + 1 }));
+  filas.forEach((f, i) => { f.hidden = i >= 10; });
+  lista.append(...filas);
+  const partes = [barra, cabecera, titulo, lista];
+  if (filas.length > 10) {
+    const verMas = document.createElement('button');
+    verMas.className = 'boton-ver-todos';
+    verMas.textContent = 'Ver más';
+    verMas.addEventListener('click', () => {
+      const abiertas = !filas[10].hidden;
+      filas.forEach((f, i) => { f.hidden = abiertas && i >= 10; });
+      verMas.textContent = abiertas ? 'Ver más' : 'Ver menos';
+    });
+    partes.push(verMas);
+  }
+  if (!canciones.length) partes.push(textoCargando('Nadie ha subido canciones de este artista todavía.'));
+  caja.replaceChildren(...partes);
+  marcarSonando(reproductor.estado().cancion);
 }
 
 /** En Buscar también salen personas (por usuario o nombre), para encontrar a tus amigos. */
@@ -4353,6 +4495,7 @@ function menuAudio(cancion) {
       localDe(cancion)
         ? { icono: 'descargado', texto: 'Ya está en tu biblioteca', alElegir: () => {} }
         : { icono: 'descargar', texto: 'Guardar en mi biblioteca', alElegir: () => guardarAudio(cancion) },
+      ...(cancion.artista ? [{ icono: 'nota', texto: `Ver todas las de ${cancion.artista}`, alElegir: () => abrirArtista(cancion.artista) }] : []),
       ...(cancion.perfilDueno && cancion.dueno !== perfilVisto?.id
         ? [{ icono: 'persona', texto: `Ver perfil de @${cancion.duenoUsuario}`, alElegir: () => abrirPerfil(cancion.perfilDueno) }]
         : []),

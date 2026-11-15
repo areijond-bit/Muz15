@@ -759,6 +759,15 @@ export async function audioPorId(id) {
   return data;
 }
 
+/** Todas las canciones de un artista (por su nombre, sin importar mayúsculas). */
+export async function audiosDeArtista(nombre) {
+  const exacto = nombre.replace(/[%_\\]/g, (c) => `\\${c}`); // que "%" o "_" no sean comodines
+  const { data, error } = await db().from('audios').select(CON_DUENO)
+    .ilike('artista', exacto).gte('bytes', MINIMO_BYTES).limit(300);
+  if (error) throw traducir(error);
+  return data;
+}
+
 /** Los álbumes de alguien (los tuyos todos; de otros, solo los públicos). */
 export async function albumesDe(dueno) {
   const { data, error } = await db().from('listas').select('*')

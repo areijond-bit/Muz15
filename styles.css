@@ -1326,14 +1326,57 @@ body.con-pantalla { overflow: hidden; }
 .top__periodos .pildora--acento { font-weight: var(--peso-fuerte); }
 .top__lista { margin: 0; padding: 0; }
 .top__lista > li[hidden] { display: none; }
-.top__lugar {
+
+/* Filas como "Populares": lugar · portada · título/artista · reproducciones · ✓ · duración · ⋮ */
+.cancion--popular { gap: 10px; }
+.popular__lugar {
   flex: none;
-  width: 26px;
-  margin-right: 2px;
+  width: 24px;
   color: var(--color-texto-suave);
   font-size: var(--texto-m);
-  font-weight: var(--peso-fuerte);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
-.top__lugar--podio { color: var(--color-acento); }
+.popular__lugar--podio { color: var(--color-acento); font-weight: var(--peso-fuerte); }
+.popular__linea { gap: 4px; }
+.popular__enlace {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.popular__enlace:hover, .popular__enlace:focus-visible { color: var(--color-texto); text-decoration: underline; }
+.popular__usuario { flex: none; max-width: 45%; }
+.popular__punto { flex: none; }
+.popular__veces {
+  flex: none;
+  min-width: 56px;
+  color: var(--color-texto-suave);
+  font-size: var(--texto-s);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.popular__duracion {
+  flex: none;
+  width: 40px;
+  color: var(--color-texto-suave);
+  font-size: var(--texto-s);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* En el cel no cabe todo: la duración se esconde y las reproducciones se achican */
+@media (max-width: 560px) {
+  .popular__duracion { display: none; }
+  .popular__veces { min-width: 0; font-size: var(--texto-xs); }
+}
+
+/* Página de un artista */
+.artista-cabecera { margin: var(--espacio-s) 0 var(--espacio-l); }
+.artista-cabecera__nombre { margin: 0; font-size: clamp(2rem, 9vw, 3.5rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1.05; }
+.artista-cabecera__meta { margin: var(--espacio-s) 0 0; color: var(--color-texto-suave); font-size: var(--texto-s); }
