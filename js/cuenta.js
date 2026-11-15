@@ -24,14 +24,14 @@ export function supabase() {
   return cliente;
 }
 
-/** ¿Este Muz15 puede entrar? Si no, el motivo para mostrarlo. */
+/** ¿Este Muzzy puede entrar (con correo)? Si no, el motivo para mostrarlo. */
 export function puedeEntrar() {
   if (!nubeConfigurada()) return { si: false, motivo: 'Muzzy todavía no está conectado a su nube.' };
-  if (esApk && !Capacitor.isPluginAvailable('Cuenta')) {
-    return { si: false, motivo: 'Necesitas la APK nueva para entrar con Google. Ve a Configuración → Buscar actualizaciones.' };
-  }
   return { si: true };
 }
+
+/** Con Google hace falta, en la APK, la parte nativa (APK 1.10 o más nueva). */
+export const puedeEntrarConGoogle = () => puedeEntrar().si && (!esApk || Capacitor.isPluginAvailable('Cuenta'));
 
 /** El usuario con sesión iniciada (o null). */
 export async function usuarioActual() {
@@ -41,12 +41,61 @@ export async function usuarioActual() {
   return data.session?.user ?? null;
 }
 
-/** Avisa cada vez que entras o sales (también desde otra pestaña). */
-export function alCambiarSesion(funcion) {
+/**
+ * Avisa cada vez que entras o sales (también desde otra pestaña).
+ * alRecuperar: abriste el enlace de "olvidé mi contraseña" (hay que poner una nueva).
+ */
+export function alCambiarSesion(funcion, { alRecuperar } = {}) {
   supabase()?.auth.onAuthStateChange((evento, sesion) => {
     if (['SIGNED_IN', 'SIGNED_OUT', 'INITIAL_SESSION'].includes(evento)) funcion(sesion?.user ?? null);
+    if (evento === 'PASSWORD_RECOVERY') setTimeout(() => alRecuperar?.());
   });
 }
+
+/* ---------- Con correo y contraseña ---------- */
+
+// Los errores de Supabase vienen en inglés: los de siempre, en español.
+function enEspanol(error) {
+  const texto = error?.message ?? '';
+  if (/invalid login credentials/i.test(texto)) return new Error('Correo o contraseña incorrectos.');
+  if (/already registered|already exists/i.test(texto)) return new Error('Ese correo ya tiene cuenta. Entra con él.');
+  if (/password.*(at least|characters|short)/i.test(texto)) return new Error('La contraseña debe tener al menos 6 caracteres.');
+  if (/invalid.*email|email.*invalid|valid email/i.test(texto)) return new Error('Ese correo no es válido.');
+  if (/email not confirmed/i.test(texto)) return new Error('Falta confirmar tu correo.');
+  if (/rate limit|too many/i.test(texto)) return new Error('Demasiados intentos. Espera unos minutos.');
+  return new Error(texto || 'Algo falló.');
+}
+
+export async function entrarConCorreo(correo, contrasena) {
+  const { data, error } = await supabase().auth.signInWithPassword({ email: correo.trim(), password: contrasena });
+  if (error) throw enEspanol(error);
+  return data.user;
+}
+
+/** Crea la cuenta y entra de una vez (el nombre de usuario se elige después). */
+export async function crearCuenta(correo, contrasena) {
+  const { data, error } = await supabase().auth.signUp({
+    email: correo.trim(),
+    password: contrasena,
+    options: { emailRedirectTo: location.origin + location.pathname },
+  });
+  if (error) throw enEspanol(error);
+  // Si Supabase pidiera confirmar el correo, no habría sesión todavía.
+  return { usuario: data.user, falta: data.session ? null : 'confirmar' };
+}
+
+/** Manda el correo para poner una contraseña nueva. */
+export async function recuperarContrasena(correo) {
+  const { error } = await supabase().auth.resetPasswordForEmail(correo.trim(), { redirectTo: location.origin + location.pathname });
+  if (error) throw enEspanol(error);
+}
+
+export async function cambiarContrasena(nueva) {
+  const { error } = await supabase().auth.updateUser({ password: nueva });
+  if (error) throw enEspanol(error);
+}
+
+/* ---------- Con Google ---------- */
 
 /** Entrar con Google. En el navegador la página se va a Google y regresa sola. */
 export async function entrar() {

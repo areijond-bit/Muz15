@@ -18,7 +18,10 @@ import { abrirHoja, confirmar } from './hoja.js';
 import { icono, ponerIconos } from './iconos.js';
 import { esApk, AppNativa } from './nativo.js';
 import { crearEcualizador, BANDAS, PERFILES, MAXIMO_DB, OPCIONES_TOPE_DB } from './ecualizador.js';
-import { puedeEntrar, entrar, salir, alCambiarSesion } from './cuenta.js';
+import {
+  puedeEntrar, puedeEntrarConGoogle, entrar, salir, alCambiarSesion,
+  entrarConCorreo, crearCuenta, recuperarContrasena, cambiarContrasena,
+} from './cuenta.js';
 import * as nube from './nube.js';
 
 const $ = (id) => document.getElementById(id);
@@ -3007,7 +3010,7 @@ function iniciarCuenta() {
     else if (perfil) abrirPerfilDelEnlace();
     else if (!usuario && primeraVez) ofrecerCuentaUnaVez();
     primeraVez = false;
-  });
+  }, { alRecuperar: pedirContrasenaNueva });
 }
 
 const CLAVE_BIENVENIDA = 'muz15-bienvenida-cuenta';
@@ -3023,6 +3026,129 @@ function ofrecerCuentaUnaVez() {
 // La "G" de Google para el botón de entrar.
 const LOGO_GOOGLE = '<svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>';
 
+/**
+ * Entrar: con Google o con correo y contraseña (y crear cuenta, u "olvidé mi
+ * contraseña"). El nombre de usuario se elige después, al crear tu perfil.
+ */
+function formularioEntrar(alTerminar) {
+  const caja = document.createElement('div');
+  caja.className = 'entrar';
+  if (puedeEntrarConGoogle()) {
+    const separador = document.createElement('p');
+    separador.className = 'entrar__o';
+    separador.textContent = 'o con tu correo';
+    caja.append(botonGoogle(alTerminar), separador);
+  }
+
+  let creando = false;
+  const formulario = document.createElement('form');
+  formulario.className = 'formulario-perfil';
+  formulario.innerHTML = `
+    <label class="campo">
+      <span class="campo__etiqueta">Correo</span>
+      <input class="campo__entrada" name="correo" type="email" required autocomplete="email" inputmode="email" autocapitalize="none" placeholder="tu@correo.com">
+    </label>
+    <label class="campo">
+      <span class="campo__etiqueta">Contraseña</span>
+      <input class="campo__entrada" name="contrasena" type="password" required minlength="6" autocomplete="current-password" placeholder="Mínimo 6 caracteres">
+    </label>
+    <p class="formulario-perfil__nota" hidden></p>
+    <button class="boton boton--primario boton--ancho" type="submit"></button>
+    <button class="entrar__enlace" type="button" data-cambiar></button>
+    <button class="entrar__enlace" type="button" data-olvide>¿Olvidaste tu contraseña?</button>`;
+  const nota = formulario.querySelector('.formulario-perfil__nota');
+  const enviar = formulario.querySelector('button[type="submit"]');
+  const cambiar = formulario.querySelector('[data-cambiar]');
+  const olvide = formulario.querySelector('[data-olvide]');
+  const campoContrasena = formulario.elements.contrasena;
+
+  const pintar = () => {
+    enviar.textContent = creando ? 'Crear cuenta' : 'Entrar';
+    cambiar.textContent = creando ? '¿Ya tienes cuenta? Entra' : '¿No tienes cuenta? Crea una';
+    campoContrasena.autocomplete = creando ? 'new-password' : 'current-password';
+    olvide.hidden = creando;
+    nota.hidden = true;
+  };
+  const avisar = (texto, tipo = 'error') => {
+    nota.hidden = false;
+    nota.textContent = texto;
+    nota.className = `formulario-perfil__nota formulario-perfil__nota--${tipo}`;
+  };
+  pintar();
+  cambiar.addEventListener('click', () => { creando = !creando; pintar(); });
+
+  olvide.addEventListener('click', async () => {
+    const correo = formulario.elements.correo.value.trim();
+    if (!correo) return avisar('Escribe tu correo arriba y vuelve a tocar "¿Olvidaste tu contraseña?".');
+    olvide.disabled = true;
+    try {
+      await recuperarContrasena(correo);
+      avisar(`Te mandamos un correo a ${correo} para poner una contraseña nueva. Ábrelo en este dispositivo.`, 'bien');
+    } catch (error) {
+      avisar(error.message);
+    } finally {
+      olvide.disabled = false;
+    }
+  });
+
+  formulario.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    const correo = formulario.elements.correo.value;
+    const contrasena = campoContrasena.value;
+    enviar.disabled = true;
+    enviar.textContent = creando ? 'Creando…' : 'Entrando…';
+    try {
+      if (creando) {
+        const { falta } = await crearCuenta(correo, contrasena);
+        if (falta === 'confirmar') {
+          avisar(`Te mandamos un correo a ${correo.trim()}: ábrelo para confirmar tu cuenta y luego entra aquí.`, 'bien');
+          creando = false;
+          enviar.disabled = false;
+          enviar.textContent = 'Entrar';
+          cambiar.textContent = '¿No tienes cuenta? Crea una';
+          return;
+        }
+      } else {
+        await entrarConCorreo(correo, contrasena);
+      }
+      alTerminar?.(); // al entrar se abre solo "Crea tu perfil" si es la primera vez
+    } catch (error) {
+      avisar(error.message);
+      enviar.disabled = false;
+      enviar.textContent = creando ? 'Crear cuenta' : 'Entrar';
+    }
+  });
+  caja.append(formulario);
+  return caja;
+}
+
+/** Abriste el enlace del correo de "olvidé mi contraseña": pon una nueva. */
+function pedirContrasenaNueva() {
+  const formulario = document.createElement('form');
+  formulario.className = 'formulario-perfil';
+  formulario.innerHTML = `
+    <label class="campo">
+      <span class="campo__etiqueta">Contraseña nueva</span>
+      <input class="campo__entrada" name="contrasena" type="password" required minlength="6" autocomplete="new-password" placeholder="Mínimo 6 caracteres">
+    </label>
+    <p class="formulario-perfil__nota formulario-perfil__nota--error" hidden></p>
+    <button class="boton boton--primario boton--ancho" type="submit">Guardar contraseña</button>`;
+  let cerrar = () => {};
+  formulario.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    const nota = formulario.querySelector('.formulario-perfil__nota');
+    try {
+      await cambiarContrasena(formulario.elements.contrasena.value);
+      cerrar();
+      mostrarAviso('Listo: ya tienes contraseña nueva.', 3000);
+    } catch (error) {
+      nota.hidden = false;
+      nota.textContent = error.message;
+    }
+  });
+  cerrar = abrirHoja({ titulo: 'Pon tu contraseña nueva', contenido: formulario });
+}
+
 function botonGoogle(alTerminar) {
   const boton = document.createElement('button');
   boton.className = 'boton-google';
@@ -3037,8 +3163,7 @@ function botonGoogle(alTerminar) {
 }
 
 async function entrarConGoogle() {
-  const { si, motivo } = puedeEntrar();
-  if (!si) return mostrarAviso(motivo, 6000);
+  if (!puedeEntrarConGoogle()) return mostrarAviso('Para entrar con Google necesitas la APK nueva (Configuración → Buscar actualizaciones). O entra con tu correo.', 6000);
   try {
     await entrar(); // en el navegador la página se va a Google y regresa sola
   } catch (error) {
@@ -3052,9 +3177,9 @@ function ofrecerCuenta() {
   cerrar = abrirHoja({
     titulo: 'Tu cuenta de Muzzy',
     subtitulo: si
-      ? 'Entra con Google: tu música, tus listas y tu perfil quedan iguales en el cel y en la PC (aunque esté apagada), y ves lo que suben tus amigos.'
+      ? 'Tu música, tus listas y tu perfil iguales en el cel y en la PC (aunque esté apagada), y lo que suben tus amigos.'
       : motivo,
-    contenido: si ? botonGoogle(() => cerrar()) : undefined,
+    contenido: si ? formularioEntrar(() => cerrar()) : undefined,
   });
 }
 
@@ -3072,13 +3197,13 @@ function pedirPerfil() {
     <button type="button" class="formulario-perfil__foto"><span class="formulario-perfil__vista"></span><span class="formulario-perfil__texto"></span></button>
     <input type="file" accept="image/*" hidden>
     <label class="campo">
-      <span class="campo__etiqueta">Nombre de usuario</span>
+      <span class="campo__etiqueta">Nombre de usuario (único)</span>
       <input class="campo__entrada" name="usuario" required autocapitalize="none" autocomplete="username" maxlength="20" placeholder="ej. alex15">
       <span class="formulario-perfil__nota">Letras, números, punto o guion bajo. Así te ven tus amigos: @usuario</span>
     </label>
     <label class="campo">
-      <span class="campo__etiqueta">Nombre (opcional)</span>
-      <input class="campo__entrada" name="nombre" maxlength="50" autocomplete="name">
+      <span class="campo__etiqueta">Apodo (opcional)</span>
+      <input class="campo__entrada" name="nombre" maxlength="50" autocomplete="nickname" placeholder="Como quieras que te digan">
     </label>
     <button class="boton boton--primario boton--ancho" type="submit"></button>`;
   const [botonFoto, campoFoto] = [formulario.querySelector('.formulario-perfil__foto'), formulario.querySelector('input[type="file"]')];
@@ -3178,7 +3303,7 @@ function pedirPerfil() {
 
   cerrar = abrirHoja({
     titulo: actual ? 'Editar perfil' : 'Crea tu perfil',
-    subtitulo: actual ? undefined : 'Así te van a ver tus amigos en Muzzy.',
+    subtitulo: actual ? undefined : 'Así te van a ver tus amigos en Muzzy. La foto y el apodo son opcionales.',
     contenido: formulario,
   });
 }
@@ -3613,7 +3738,7 @@ function pintarPerfilSinCuenta() {
   titulo.textContent = usuarioNube ? 'Te falta tu perfil' : 'Tu cuenta de Muzzy';
   dato.textContent = !si ? motivo
     : usuarioNube ? 'Elige tu nombre de usuario y tu foto.'
-      : 'Entra con Google: tu música, tus listas y tu perfil iguales en el cel y en la PC, y lo que suben tus amigos.';
+      : 'Entra o crea tu cuenta: tu música, tus listas y tu perfil iguales en el cel y en la PC, y lo que suben tus amigos.';
   tarjeta.append(muneco, titulo, dato);
   if (si && usuarioNube) {
     const crear = document.createElement('button');
@@ -3622,7 +3747,7 @@ function pintarPerfilSinCuenta() {
     crear.addEventListener('click', pedirPerfil);
     tarjeta.append(crear);
   } else if (si) {
-    tarjeta.append(botonGoogle());
+    tarjeta.append(formularioEntrar());
   }
   caja.replaceChildren(tarjeta, listaDeAcciones([{ icono: 'ajustes', texto: 'Configuración', alElegir: () => el.ajustes.click() }]));
 }
@@ -3698,7 +3823,9 @@ async function pintarInicio() {
       const invitacion = document.createElement('div');
       invitacion.className = 'perfil-hoja';
       invitacion.innerHTML = '<p class="perfil-hoja__dato">Entra para ver lo que suben tus amigos y tener tu música en todos tus dispositivos.</p>';
-      invitacion.append(usuarioNube ? botonPerfil('Crear mi perfil', { acento: true, alTocar: pedirPerfil }) : botonGoogle());
+      invitacion.append(usuarioNube
+        ? botonPerfil('Crear mi perfil', { acento: true, alTocar: pedirPerfil })
+        : botonPerfil('Entrar o crear cuenta', { acento: true, alTocar: ofrecerCuenta }));
       el.inicioContenido.append(invitacion);
     }
     return;
@@ -3840,7 +3967,7 @@ async function abrirExplorar({ masResultados = false } = {}) {
       : usuarioNube ? 'Te falta crear tu perfil.'
         : 'Con tu cuenta ves los audios de tus amigos y tienes tu música en todos tus dispositivos.';
     el.explorarEntrar.hidden = !si;
-    el.explorarEntrar.textContent = usuarioNube ? 'Crear mi perfil' : 'Entrar con Google';
+    el.explorarEntrar.textContent = usuarioNube ? 'Crear mi perfil' : 'Entrar o crear cuenta';
     return;
   }
   paginaExplorar = masResultados ? paginaExplorar + 1 : 0;
@@ -3985,7 +4112,7 @@ el.buscarExplorar.addEventListener('input', () => {
 });
 el.recargarExplorar.addEventListener('click', () => abrirExplorar());
 el.masExplorar.addEventListener('click', () => abrirExplorar({ masResultados: true }));
-el.explorarEntrar.addEventListener('click', () => (usuarioNube ? pedirPerfil() : entrarConGoogle()));
+el.explorarEntrar.addEventListener('click', () => (usuarioNube ? pedirPerfil() : ofrecerCuenta()));
 
 /* ---------- Pantalla completa del reproductor ---------- */
 // Al tocar el reproductor de abajo: portada grande, controles, lo que sigue y,

@@ -1294,3 +1294,10 @@ body.con-pantalla { overflow: hidden; }
 .comentario__quien { margin: 0; color: rgba(255, 255, 255, 0.6); font-size: var(--texto-xs); }
 .comentario__texto { margin: 2px 0 0; font-size: var(--texto-s); white-space: pre-wrap; overflow-wrap: anywhere; }
 .pantalla .comentario__borrar { width: 32px; height: 32px; color: rgba(255, 255, 255, 0.6); }
+
+/* Entrar: Google + correo y contraseña */
+.entrar { display: flex; flex-direction: column; width: 100%; max-width: 360px; margin: 0 auto; text-align: left; }
+.entrar__o { margin: var(--espacio-s) 0 var(--espacio-m); color: var(--color-texto-suave); font-size: var(--texto-s); text-align: center; }
+.entrar .formulario-perfil { gap: var(--espacio-s); }
+.entrar__enlace { border: 0; background: transparent; color: var(--color-acento); font: inherit; font-size: var(--texto-s); cursor: pointer; padding: 6px 0; }
+.entrar__enlace[hidden] { display: none; }
