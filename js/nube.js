@@ -126,12 +126,13 @@ export async function usuarioLibre(usuario) {
 
 /**
  * Crea o cambia tu perfil.
- * @param {{usuario: string, nombre: string, foto?: Blob|null}} datos  foto: undefined = no cambiar, null = quitar
+ * @param {{usuario: string, nombre: string, foto?: Blob|string|null}} datos  foto: undefined = no cambiar, null = quitar, texto = dirección (la de Google)
  */
 export async function guardarPerfil({ usuario, nombre, foto }) {
   let direccionFoto = miPerfil?.foto ?? null;
   if (foto === null) direccionFoto = null;
   if (foto instanceof Blob) direccionFoto = await subirArchivo('foto', foto, foto.type || 'image/jpeg');
+  if (typeof foto === 'string') direccionFoto = foto; // la de tu cuenta de Google
   const { data, error } = await db().from('perfiles')
     .upsert({ id: yo, usuario, nombre: nombre.slice(0, 50), foto: direccionFoto })
     .select().single();
@@ -526,6 +527,8 @@ function suscribir() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'escuchando', filter: `usuario=eq.${yo}` }, (cambio) => ganchos.alEscuchando?.(cambio.new))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'siguiendo' }, () => ganchos.alCambiarSeguidores?.())
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'perfiles' }, () => ganchos.alCambiarSeguidores?.())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'reacciones' }, (cambio) => ganchos.alCambiarAudioSocial?.((cambio.new?.audio ?? cambio.old?.audio)))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'comentarios' }, (cambio) => ganchos.alCambiarAudioSocial?.((cambio.new?.audio ?? cambio.old?.audio)))
     .subscribe();
   // Al volver a la app (o recuperar internet), ponerse al día.
   document.addEventListener('visibilitychange', alVolver);
@@ -628,6 +631,52 @@ export async function seguir(id) {
 export async function dejarDeSeguir(id) {
   const { error } = await db().from('siguiendo').delete().eq('seguidor', yo).eq('seguido', id);
   if (error) throw traducir(error);
+}
+
+/* ---------- Me gusta y comentarios (como en YouTube) ---------- */
+
+/** @returns {Promise<{likes: number, dislikes: number, mia: 1|-1|0}>} */
+export async function reaccionesDe(audio) {
+  const contar = (valor) => db().from('reacciones').select('audio', { count: 'exact', head: true }).eq('audio', audio).eq('valor', valor);
+  const [likes, dislikes, mia] = await Promise.all([
+    contar(1), contar(-1),
+    db().from('reacciones').select('valor').eq('audio', audio).eq('usuario', yo).maybeSingle(),
+  ]);
+  const error = likes.error ?? dislikes.error ?? mia.error;
+  if (error) throw traducir(error);
+  return { likes: likes.count ?? 0, dislikes: dislikes.count ?? 0, mia: mia.data?.valor ?? 0 };
+}
+
+/** valor: 1 = me gusta, -1 = no me gusta, 0 = quitar. */
+export async function reaccionar(audio, valor) {
+  const { error } = valor
+    ? await db().from('reacciones').upsert({ usuario: yo, audio, valor })
+    : await db().from('reacciones').delete().eq('usuario', yo).eq('audio', audio);
+  if (error) throw traducir(error);
+}
+
+export async function comentariosDe(audio) {
+  const { data, error } = await db().from('comentarios').select('*, perfil:perfiles(id, usuario, nombre, foto)')
+    .eq('audio', audio).order('creado', { ascending: false }).limit(100);
+  if (error) throw traducir(error);
+  return data;
+}
+
+export async function comentar(audio, texto) {
+  const { error } = await db().from('comentarios').insert({ audio, usuario: yo, texto: texto.trim().slice(0, 500) });
+  if (error) throw traducir(error);
+}
+
+export async function borrarComentario(id) {
+  const { error } = await db().from('comentarios').delete().eq('id', id);
+  if (error) throw traducir(error);
+}
+
+/** Un audio con su dueño (para la pantalla del reproductor). */
+export async function audioPorId(id) {
+  const { data, error } = await db().from('audios').select('*, perfil:perfiles(id, usuario, nombre, foto)').eq('id', id).maybeSingle();
+  if (error) throw traducir(error);
+  return data;
 }
 
 /** Los álbumes de alguien (los tuyos todos; de otros, solo los públicos). */

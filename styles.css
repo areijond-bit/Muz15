@@ -327,7 +327,7 @@ button { font: inherit; color: inherit; }
   left: var(--espacio-m);
   right: var(--espacio-m);
   bottom: calc(var(--alto-navegacion) + var(--alto-reproductor) + env(safe-area-inset-bottom) + 16px);
-  z-index: 6;
+  z-index: 12;
   margin: 0;
   padding: 12px var(--espacio-m);
   border-radius: var(--radio-s);
@@ -1195,3 +1195,102 @@ button { font: inherit; color: inherit; }
 .tema__textos { display: flex; flex-direction: column; }
 .tema__textos span { color: var(--color-texto-suave); font-size: var(--texto-xs); }
 .tema__campo input[type="color"] { width: 48px; height: 36px; padding: 0; border: 1px solid var(--color-borde); border-radius: var(--radio-s); background: transparent; cursor: pointer; }
+
+/* =========================================================
+   PANTALLA COMPLETA DEL REPRODUCTOR
+   ========================================================= */
+.reproductor { cursor: pointer; }
+body.con-pantalla { overflow: hidden; }
+.pantalla {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  overflow-y: auto;
+  padding: max(var(--espacio-s), env(safe-area-inset-top)) var(--espacio-l) calc(var(--espacio-l) + env(safe-area-inset-bottom));
+  /* Del color de la portada hacia oscuro, como Spotify */
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--color-portada) 85%, #000) 0%, color-mix(in srgb, var(--color-portada) 35%, #0d0d0d) 55%, #0d0d0d 100%) fixed;
+  color: #fff;
+  animation: subir-pantalla 0.25s ease-out;
+}
+.pantalla[hidden] { display: none; }
+@keyframes subir-pantalla { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .pantalla { animation: none; } }
+.pantalla .boton-icono { color: #fff; }
+.pantalla__barra { display: flex; align-items: center; gap: var(--espacio-s); margin: 0 calc(-1 * var(--espacio-s)) var(--espacio-l); }
+.pantalla__origen { flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; text-align: center; }
+.pantalla__origen span { font-size: var(--texto-xs); }
+.pantalla__origen strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--texto-s); }
+.pantalla__portada {
+  display: block;
+  width: min(100%, 420px);
+  aspect-ratio: 1;
+  margin: 0 auto var(--espacio-l);
+  border-radius: var(--radio-s);
+  object-fit: cover;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.pantalla__datos { display: flex; align-items: center; gap: var(--espacio-m); }
+.pantalla__textos { flex: 1; min-width: 0; }
+.pantalla__titulo { margin: 0; font-size: 1.4rem; font-weight: var(--peso-fuerte); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pantalla__artista { margin: 2px 0 0; color: rgba(255, 255, 255, 0.7); font-size: var(--texto-m); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pantalla .pantalla__guardar--hecho { color: var(--color-acento); }
+.pantalla__progreso {
+  width: 100%;
+  height: 4px;
+  margin: var(--espacio-l) 0 var(--espacio-s);
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 2px;
+  background: linear-gradient(to right, #fff var(--avance, 0%), rgba(255, 255, 255, 0.3) var(--avance, 0%));
+  cursor: pointer;
+}
+.pantalla__progreso::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #fff; }
+.pantalla__progreso::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: #fff; }
+.pantalla__tiempos { display: flex; justify-content: space-between; color: rgba(255, 255, 255, 0.7); font-size: var(--texto-xs); font-variant-numeric: tabular-nums; }
+.pantalla__controles { display: flex; align-items: center; justify-content: space-between; margin: var(--espacio-m) 0; }
+.pantalla .boton-icono--modo { color: rgba(255, 255, 255, 0.7); }
+.pantalla .boton-icono--modo[aria-pressed="true"] { color: var(--color-acento); }
+.pantalla__play {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  color: #000;
+  cursor: pointer;
+}
+.pantalla__extra { display: flex; justify-content: flex-end; margin: 0 calc(-1 * var(--espacio-s)); }
+.pantalla__social { display: flex; flex-direction: column; gap: var(--espacio-m); margin-top: var(--espacio-m); }
+.pantalla__tarjeta { padding: var(--espacio-m); border-radius: var(--radio-m); background: rgba(255, 255, 255, 0.08); }
+.pantalla__nota { margin: 0; color: rgba(255, 255, 255, 0.7); font-size: var(--texto-s); }
+.pantalla__reacciones { display: flex; gap: var(--espacio-s); }
+.pantalla__reaccion {
+  display: flex;
+  align-items: center;
+  gap: var(--espacio-s);
+  padding: 8px var(--espacio-m);
+  border: 0;
+  border-radius: var(--radio-redondo);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: inherit;
+  font-weight: var(--peso-fuerte);
+  cursor: pointer;
+}
+.pantalla__reaccion--activa { background: var(--color-acento); color: var(--color-texto-sobre-acento); }
+.pantalla__reaccion--activa .icono path { fill: currentColor; }
+.pantalla__dueno { display: flex; align-items: center; gap: var(--espacio-m); cursor: pointer; }
+.pantalla__dueno .persona__usuario { color: #fff; }
+.pantalla__dueno .boton-perfil { flex: none; }
+.pantalla__titulo-seccion { margin: 0 0 var(--espacio-s); font-weight: var(--peso-fuerte); }
+.pantalla__comentar { display: flex; align-items: center; gap: var(--espacio-s); margin-bottom: var(--espacio-m); }
+.pantalla__comentar .campo__entrada { flex: 1; min-width: 0; padding: 10px 12px; background: rgba(255, 255, 255, 0.1); color: #fff; border-color: transparent; }
+.pantalla__comentar .boton-perfil { flex: none; }
+.pantalla__comentarios { display: flex; flex-direction: column; gap: var(--espacio-m); margin: 0; padding: 0; list-style: none; }
+.comentario { display: flex; align-items: flex-start; gap: var(--espacio-s); }
+.comentario__cuerpo { flex: 1; min-width: 0; }
+.comentario__quien { margin: 0; color: rgba(255, 255, 255, 0.6); font-size: var(--texto-xs); }
+.comentario__texto { margin: 2px 0 0; font-size: var(--texto-s); white-space: pre-wrap; overflow-wrap: anywhere; }
+.pantalla .comentario__borrar { width: 32px; height: 32px; color: rgba(255, 255, 255, 0.6); }

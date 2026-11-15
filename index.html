@@ -223,6 +223,37 @@
     <audio id="audio2" preload="auto" crossorigin="anonymous"></audio>
   </footer>
 
+  <!-- Pantalla completa del reproductor (al tocar el de abajo) -->
+  <div id="pantalla" class="pantalla" role="dialog" aria-label="Reproductor" hidden>
+    <div class="pantalla__barra">
+      <button id="pantalla-cerrar" class="boton-icono" aria-label="Cerrar"><span data-icono="abajo" data-tamano="28"></span></button>
+      <div class="pantalla__origen"><span id="pantalla-desde"></span><strong id="pantalla-lista"></strong></div>
+      <button id="pantalla-menu" class="boton-icono" aria-label="Opciones"><span data-icono="mas"></span></button>
+    </div>
+    <img id="pantalla-portada" class="pantalla__portada" src="icons/portada.png" alt="">
+    <div class="pantalla__datos">
+      <div class="pantalla__textos">
+        <p id="pantalla-titulo" class="pantalla__titulo"></p>
+        <p id="pantalla-artista" class="pantalla__artista"></p>
+      </div>
+      <button id="pantalla-guardar" class="boton-icono pantalla__guardar"></button>
+    </div>
+    <input id="pantalla-progreso" class="pantalla__progreso" type="range" min="0" max="0" step="0.1" value="0" aria-label="Progreso">
+    <div class="pantalla__tiempos"><span id="pantalla-actual">0:00</span><span id="pantalla-total">0:00</span></div>
+    <div class="pantalla__controles">
+      <button id="pantalla-aleatorio" class="boton-icono boton-icono--modo" aria-pressed="false" aria-label="Aleatorio"><span data-icono="aleatorio" data-tamano="26"></span></button>
+      <button id="pantalla-anterior" class="boton-icono" aria-label="Anterior"><span data-icono="anterior" data-tamano="36"></span></button>
+      <button id="pantalla-alternar" class="pantalla__play" aria-label="Reproducir"></button>
+      <button id="pantalla-siguiente" class="boton-icono" aria-label="Siguiente"><span data-icono="siguiente" data-tamano="36"></span></button>
+      <button id="pantalla-cola" class="boton-icono" aria-label="Lo que sigue"><span data-icono="cola" data-tamano="26"></span></button>
+    </div>
+    <div class="pantalla__extra">
+      <button id="pantalla-compartir" class="boton-icono" aria-label="Compartir"><span data-icono="compartir"></span></button>
+    </div>
+    <!-- Como YouTube: me gusta, quién la subió y comentarios -->
+    <div id="pantalla-social" class="pantalla__social"></div>
+  </div>
+
   <!-- Navegación de abajo -->
   <nav class="navegacion" aria-label="Secciones">
     <button class="pestana pestana--activa" data-vista="inicio"><span data-icono="inicio"></span><span>Inicio</span></button>

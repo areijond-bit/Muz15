@@ -9,6 +9,8 @@
 --   listas      tus álbumes y playlists
 --   escuchando  qué estás escuchando ahora y en qué dispositivo
 --   siguiendo   quién sigue a quién (seguidores / seguidos, como en Instagram)
+--   reacciones  me gusta / no me gusta de cada audio (como en YouTube)
+--   comentarios lo que escriben en cada audio
 --
 -- Seguridad (RLS): cualquiera con cuenta puede VER perfiles y audios; solo el dueño
 -- puede cambiar o borrar lo suyo. Tu biblioteca y lo que escuchas solo los ves tú.
@@ -118,6 +120,40 @@ create policy "siguiendo: sigues tú" on public.siguiendo for insert to authenti
 drop policy if exists "siguiendo: dejas de seguir tú" on public.siguiendo;
 create policy "siguiendo: dejas de seguir tú" on public.siguiendo for delete to authenticated using (seguidor = auth.uid());
 
+-- ---------- Me gusta / No me gusta ----------
+create table if not exists public.reacciones (
+  usuario  uuid not null references public.perfiles (id) on delete cascade,
+  audio    uuid not null references public.audios (id) on delete cascade,
+  valor    smallint not null check (valor in (1, -1)),   -- 1 = me gusta, -1 = no me gusta
+  creado   timestamptz not null default now(),
+  primary key (usuario, audio)
+);
+create index if not exists reacciones_audio on public.reacciones (audio);
+alter table public.reacciones enable row level security;
+drop policy if exists "reacciones: todos las ven" on public.reacciones;
+create policy "reacciones: todos las ven" on public.reacciones for select to authenticated using (true);
+drop policy if exists "reacciones: la tuya la pones tú" on public.reacciones;
+create policy "reacciones: la tuya la pones tú" on public.reacciones for all to authenticated using (usuario = auth.uid()) with check (usuario = auth.uid());
+
+-- ---------- Comentarios ----------
+create table if not exists public.comentarios (
+  id       uuid primary key default gen_random_uuid(),
+  audio    uuid not null references public.audios (id) on delete cascade,
+  usuario  uuid not null references public.perfiles (id) on delete cascade,
+  texto    text not null check (char_length(texto) between 1 and 500),
+  creado   timestamptz not null default now()
+);
+create index if not exists comentarios_audio on public.comentarios (audio, creado desc);
+alter table public.comentarios enable row level security;
+drop policy if exists "comentarios: todos los ven" on public.comentarios;
+create policy "comentarios: todos los ven" on public.comentarios for select to authenticated using (true);
+drop policy if exists "comentarios: comentas a tu nombre" on public.comentarios;
+create policy "comentarios: comentas a tu nombre" on public.comentarios for insert to authenticated with check (usuario = auth.uid());
+-- Borra el que lo escribió o el dueño del audio.
+drop policy if exists "comentarios: borra el autor o el dueño" on public.comentarios;
+create policy "comentarios: borra el autor o el dueño" on public.comentarios for delete to authenticated
+  using (usuario = auth.uid() or exists (select 1 from public.audios a where a.id = audio and a.dueno = auth.uid()));
+
 -- ---------- "N veces guardada" ----------
 -- Cuántas personas (sin contar al dueño) tienen cada audio en su biblioteca.
 -- La biblioteca de cada quien es privada; esto solo da el número.
@@ -152,7 +188,7 @@ create policy "escuchando: solo tú" on public.escuchando for all to authenticat
 do $$
 declare tabla text;
 begin
-  foreach tabla in array array['audios', 'guardados', 'listas', 'escuchando', 'perfiles', 'siguiendo'] loop
+  foreach tabla in array array['audios', 'guardados', 'listas', 'escuchando', 'perfiles', 'siguiendo', 'reacciones', 'comentarios'] loop
     if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = tabla) then
       execute format('alter publication supabase_realtime add table public.%I', tabla);
     end if;
@@ -162,3 +198,5 @@ end $$;
 alter table public.guardados replica identity full;
 alter table public.listas replica identity full;
 alter table public.siguiendo replica identity full;
+alter table public.reacciones replica identity full;
+alter table public.comentarios replica identity full;

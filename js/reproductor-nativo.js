@@ -214,6 +214,17 @@ export function crearReproductorNativo({ fuente, alCambiar, alProgreso, alFallar
       avisar();
       await (sonando ? Reproductor.reproducir() : Reproductor.pausar());
     },
+    /** Lo que sigue (hasta 30), en el orden en que va a sonar. */
+    cola() {
+      const p = orden.indexOf(indice);
+      if (p === -1) return [];
+      return Array.from({ length: Math.min(30, orden.length - 1) }, (_, k) => lista[orden[(p + 1 + k) % orden.length]]).filter(Boolean);
+    },
+    /** Salta a una canción de la cola (sin recargarla). */
+    saltarA(id) {
+      const p = orden.indexOf(lista.findIndex((c) => c.id === id));
+      if (p !== -1) return Reproductor.irACancion({ indice: p });
+    },
     siguiente: () => Reproductor.siguiente(),
     anterior: () => Reproductor.anterior(),
     irA: (segundo) => Reproductor.irA({ segundo }),

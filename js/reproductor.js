@@ -513,6 +513,17 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
       avisar();
       prepararSiguiente();
     },
+    /** Lo que sigue (hasta 30), en el orden en que va a sonar. */
+    cola() {
+      const p = orden.indexOf(indice);
+      if (p === -1) return [];
+      return Array.from({ length: Math.min(30, orden.length - 1) }, (_, k) => lista[orden[(p + 1 + k) % orden.length]]).filter(Boolean);
+    },
+    /** Salta a una canción de la lista que suena. */
+    saltarA(id) {
+      const i = lista.findIndex((c) => c.id === id);
+      if (i !== -1) return reproducir(i);
+    },
     alternar,
     siguiente: () => siguiente(),
     anterior,

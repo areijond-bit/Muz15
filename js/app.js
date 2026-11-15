@@ -100,6 +100,25 @@ const el = {
   inicioContenido: $('inicio-contenido'),
   cabeceraBiblioteca: $('cabecera-biblioteca'),
   chips: document.querySelectorAll('[data-chip]'),
+  pantalla: $('pantalla'),
+  pantallaCerrar: $('pantalla-cerrar'),
+  pantallaDesde: $('pantalla-desde'),
+  pantallaLista: $('pantalla-lista'),
+  pantallaMenu: $('pantalla-menu'),
+  pantallaPortada: $('pantalla-portada'),
+  pantallaTitulo: $('pantalla-titulo'),
+  pantallaArtista: $('pantalla-artista'),
+  pantallaGuardar: $('pantalla-guardar'),
+  pantallaProgreso: $('pantalla-progreso'),
+  pantallaActual: $('pantalla-actual'),
+  pantallaTotal: $('pantalla-total'),
+  pantallaAleatorio: $('pantalla-aleatorio'),
+  pantallaAnterior: $('pantalla-anterior'),
+  pantallaAlternar: $('pantalla-alternar'),
+  pantallaSiguiente: $('pantalla-siguiente'),
+  pantallaCola: $('pantalla-cola'),
+  pantallaCompartir: $('pantalla-compartir'),
+  pantallaSocial: $('pantalla-social'),
   buscarExplorar: $('buscar-explorar'),
   estadoExplorar: $('estado-explorar'),
   listaExplorar: $('lista-explorar'),
@@ -1631,6 +1650,7 @@ for (const chip of el.chips) {
 
 let vistaActual = 'inicio';
 function mostrarVista(vista) {
+  if (pantallaAbierta) cerrarPantalla();
   for (const pestana of el.pestanas) {
     pestana.classList.toggle('pestana--activa', pestana.dataset.vista === vista);
   }
@@ -1883,11 +1903,15 @@ function pintarReproductor({ cancion, sonando, aleatorio, urlPortada }) {
   if (el.portada.src !== urlPortada) {
     el.portada.src = urlPortada;
     // El reproductor flotante toma el color de la portada de lo que suena.
-    colorDePortada(urlPortada).then((color) => el.barraReproductor.style.setProperty('--color-portada', color ?? '#2a2a2a'));
+    colorDePortada(urlPortada).then((color) => {
+      el.barraReproductor.style.setProperty('--color-portada', color ?? '#2a2a2a');
+      el.pantalla.style.setProperty('--color-portada', color ?? '#2a2a2a');
+    });
   }
   el.alternar.innerHTML = icono(sonando ? 'pausa' : 'play', 30);
   el.alternar.setAttribute('aria-label', sonando ? 'Pausar' : 'Reproducir');
   marcarSonando(cancion);
+  pintarPantalla({ cancion, sonando, aleatorio, urlPortada });
 }
 
 el.alternar.addEventListener('click', () => {
@@ -1915,6 +1939,7 @@ let arrastrando = false;
 function pintarProgreso({ actual, duracion }) {
   segundoActual = actual;
   guardarUltima();
+  pintarProgresoPantalla(actual, duracion);
   // Cada ~30 s mientras suena (nube.js no manda más seguido).
   const { cancion, sonando } = reproductor.estado();
   if (sonando) nube.anunciar({ cancion, sonando, posicion: actual }).catch(() => {});
@@ -2140,6 +2165,7 @@ const revisarActualizacionLista = revisarActualizacion(); // también deja anota
 AppNativa?.addListener('backButton', () => {
   const hojaAbierta = [...document.querySelectorAll('.hoja-fondo')].at(-1);
   if (hojaAbierta) return hojaAbierta.click(); // tocar el fondo = cerrar la hoja
+  if (pantallaAbierta) return cerrarPantalla();
   if (listaAbierta && vistaActual === 'biblioteca') {
     listaAbierta = null;
     return pintarListas();
@@ -2960,6 +2986,7 @@ function iniciarCuenta() {
     alCambiarBiblioteca: programarRecarga,
     alEscuchando: pintarEscuchando,
     alCambiarSeguidores,
+    alCambiarAudioSocial,
     alAudioNuevo: () => { if (vistaActual === 'explorar' && !el.buscarExplorar.value) abrirExplorar(); },
     avisar: mostrarAviso,
   });
@@ -3035,7 +3062,9 @@ function ofrecerCuenta() {
 function pedirPerfil() {
   const actual = nube.perfil();
   const datosGoogle = usuarioNube?.user_metadata ?? {};
-  let foto; // undefined = no cambiar · null = quitar · Blob = nueva
+  // undefined = no cambiar · null = quitar · Blob = nueva · texto = tu foto de Google
+  // (al crear el perfil se usa la de Google, si tienes; la puedes cambiar o quitar).
+  let foto = actual ? undefined : (datosGoogle.avatar_url ?? datosGoogle.picture ?? undefined);
 
   const formulario = document.createElement('form');
   formulario.className = 'formulario-perfil';
@@ -3066,7 +3095,7 @@ function pedirPerfil() {
 
   const pintarFoto = () => {
     const vista = formulario.querySelector('.formulario-perfil__vista');
-    const fotoActual = foto === undefined ? actual?.foto : (foto ? urlFotoNueva : null);
+    const fotoActual = foto === undefined ? actual?.foto : (typeof foto === 'string' ? foto : (foto ? urlFotoNueva : null));
     vista.replaceChildren(crearAvatar({ usuario: campoUsuario.value || '?', foto: fotoActual }, 88));
     formulario.querySelector('.formulario-perfil__texto').textContent = fotoActual ? 'Cambiar foto' : 'Poner foto (opcional)';
   };
@@ -3957,6 +3986,323 @@ el.buscarExplorar.addEventListener('input', () => {
 el.recargarExplorar.addEventListener('click', () => abrirExplorar());
 el.masExplorar.addEventListener('click', () => abrirExplorar({ masResultados: true }));
 el.explorarEntrar.addEventListener('click', () => (usuarioNube ? pedirPerfil() : entrarConGoogle()));
+
+/* ---------- Pantalla completa del reproductor ---------- */
+// Al tocar el reproductor de abajo: portada grande, controles, lo que sigue y,
+// como en YouTube, me gusta / no me gusta, quién la subió y comentarios.
+
+let pantallaAbierta = false;
+let pantallaAudio = null;   // id en la nube de lo que se muestra (para me gusta y comentarios)
+let arrastrandoPantalla = false;
+
+const mmss = (segundos) => {
+  const s = Math.max(0, Math.floor(segundos || 0));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+
+function abrirPantalla() {
+  if (!reproductor.estado().cancion) return;
+  pantallaAbierta = true;
+  el.pantalla.hidden = false;
+  document.body.classList.add('con-pantalla');
+  el.pantalla.scrollTop = 0;
+  pintarPantalla(reproductor.estado(), { forzarSocial: true });
+}
+
+function cerrarPantalla() {
+  pantallaAbierta = false;
+  el.pantalla.hidden = true;
+  document.body.classList.remove('con-pantalla');
+}
+
+el.barraReproductor.addEventListener('click', (evento) => {
+  if (evento.target.closest('button, input')) return; // los controles del de abajo hacen lo suyo
+  abrirPantalla();
+});
+el.pantallaCerrar.addEventListener('click', cerrarPantalla);
+
+/** "Reproduciendo desde…" */
+function origenDe(cancion) {
+  const lista = listas.find((l) => l.id === listaQueSuena);
+  if (lista) return [esPlaylist(lista) ? 'Reproduciendo desde playlist' : 'Reproduciendo desde álbum', lista.nombre];
+  if (cancion?.origen === 'nube') return ['Reproduciendo desde', cancion.duenoUsuario ? `@${cancion.duenoUsuario}` : 'Muzzy'];
+  if (cancion?.origen === 'servidor') return ['Reproduciendo desde', 'Mi PC'];
+  return ['Reproduciendo desde', 'Tus canciones'];
+}
+
+/** La copia de tu biblioteca de lo que suena (o null). */
+const enMiBiblioteca = (cancion) => (cancion?.origen ? localDe(cancion) : cancion) ?? null;
+const idEnNube = (cancion) => enMiBiblioteca(cancion)?.idNube ?? cancion?.idNube ?? (cancion?.origen === 'nube' ? cancion.id : null);
+
+function pintarPantalla({ cancion, sonando, aleatorio, urlPortada }, { forzarSocial = false } = {}) {
+  if (!pantallaAbierta) return;
+  if (!cancion) return cerrarPantalla();
+  const [desde, nombre] = origenDe(cancion);
+  el.pantallaDesde.textContent = desde;
+  el.pantallaLista.textContent = nombre;
+  if (el.pantallaPortada.src !== urlPortada) el.pantallaPortada.src = urlPortada || 'icons/portada.png';
+  el.pantalla.style.setProperty('--color-portada', getComputedStyle(el.barraReproductor).getPropertyValue('--color-portada') || '#2a2a2a');
+  el.pantallaTitulo.textContent = cancion.titulo;
+  el.pantallaArtista.textContent = cancion.artista || '';
+  el.pantallaAlternar.innerHTML = icono(sonando ? 'pausa' : 'play', 34);
+  el.pantallaAlternar.setAttribute('aria-label', sonando ? 'Pausar' : 'Reproducir');
+  el.pantallaAleatorio.setAttribute('aria-pressed', String(aleatorio));
+
+  // ✓ si ya está en tu biblioteca; + para guardarla
+  const mia = enMiBiblioteca(cancion);
+  el.pantallaGuardar.innerHTML = icono(mia ? 'descargado' : 'agregar', 28);
+  el.pantallaGuardar.classList.toggle('pantalla__guardar--hecho', Boolean(mia));
+  el.pantallaGuardar.setAttribute('aria-label', mia ? 'En tu biblioteca' : 'Guardar en tu biblioteca');
+
+  const audio = idEnNube(cancion);
+  if (forzarSocial || audio !== pantallaAudio) {
+    pantallaAudio = audio;
+    pintarSocial(cancion);
+  }
+}
+
+function pintarProgresoPantalla(actual, duracion) {
+  if (!pantallaAbierta || arrastrandoPantalla) return;
+  el.pantallaProgreso.max = duracion || 0;
+  el.pantallaProgreso.value = actual;
+  el.pantallaProgreso.style.setProperty('--avance', `${duracion ? (actual / duracion) * 100 : 0}%`);
+  el.pantallaActual.textContent = mmss(actual);
+  el.pantallaTotal.textContent = mmss(duracion);
+}
+
+el.pantallaProgreso.addEventListener('input', () => {
+  arrastrandoPantalla = true;
+  el.pantallaActual.textContent = mmss(el.pantallaProgreso.value);
+});
+el.pantallaProgreso.addEventListener('change', () => {
+  reproductor.irA(Number(el.pantallaProgreso.value));
+  arrastrandoPantalla = false;
+});
+el.pantallaAlternar.addEventListener('click', () => el.alternar.click());
+el.pantallaAnterior.addEventListener('click', () => reproductor.anterior());
+el.pantallaSiguiente.addEventListener('click', () => reproductor.siguiente());
+el.pantallaAleatorio.addEventListener('click', () => el.aleatorio.click());
+
+el.pantallaGuardar.addEventListener('click', () => {
+  const { cancion } = reproductor.estado();
+  const mia = enMiBiblioteca(cancion);
+  if (mia) return menuCancion(mia);
+  if (cancion?.origen === 'nube') return guardarAudio(cancion);
+  if (cancion?.origen === 'servidor') return descargarDelServidor(cancion);
+});
+
+el.pantallaMenu.addEventListener('click', () => {
+  const { cancion } = reproductor.estado();
+  const mia = enMiBiblioteca(cancion);
+  if (mia) menuCancion(mia);
+  else if (cancion?.origen === 'nube') menuAudio(cancion);
+});
+
+el.pantallaCola.addEventListener('click', () => {
+  const siguientes = reproductor.cola();
+  const lista = document.createElement('ul');
+  lista.className = 'lista';
+  let cerrar = () => {};
+  const portadaDe = (c) => (c.origen === 'nube' ? c.portadaUrl ?? 'icons/portada.png'
+    : c.origen === 'servidor' ? servidor.urlPortada(c, 96) ?? 'icons/portada.png' : urlDePortada(c));
+  lista.append(...siguientes.map((c) => crearFila(c, portadaDe(c), document.createElement('span'), () => {
+    cerrar();
+    reproductor.saltarA(c.id);
+  })));
+  cerrar = abrirHoja({
+    titulo: 'Lo que sigue',
+    subtitulo: siguientes.length ? undefined : 'No hay más canciones en la cola.',
+    contenido: lista,
+  });
+});
+
+el.pantallaCompartir.addEventListener('click', async () => {
+  const { cancion } = reproductor.estado();
+  if (!cancion) return;
+  const dueno = cancion.duenoUsuario ?? enMiBiblioteca(cancion)?.duenoUsuario;
+  const texto = `Escucha "${cancion.titulo}"${cancion.artista ? ` de ${cancion.artista}` : ''} en Muzzy`;
+  const enlace = dueno ? `${location.origin}${location.pathname}?perfil=${encodeURIComponent(dueno)}` : `${location.origin}${location.pathname}`;
+  try {
+    if (navigator.share) return await navigator.share({ title: 'Muzzy', text: texto, url: enlace });
+  } catch (error) {
+    if (error.name === 'AbortError') return;
+  }
+  try {
+    await navigator.clipboard.writeText(`${texto}: ${enlace}`);
+    mostrarAviso('Enlace copiado.', 2500);
+  } catch {
+    abrirHoja({ titulo: 'Compartir', subtitulo: `${texto}: ${enlace}` });
+  }
+});
+
+/* --- Como YouTube: me gusta, quién la subió y comentarios --- */
+
+function haceCuanto(fecha) {
+  const segundos = (Date.now() - Date.parse(fecha)) / 1000;
+  if (segundos < 60) return 'ahora';
+  const minutos = segundos / 60;
+  if (minutos < 60) return `hace ${Math.floor(minutos)} min`;
+  const horas = minutos / 60;
+  if (horas < 24) return `hace ${Math.floor(horas)} h`;
+  const dias = horas / 24;
+  if (dias < 30) return `hace ${Math.floor(dias)} d`;
+  return new Date(fecha).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function tarjetaSocial(...hijos) {
+  const tarjeta = document.createElement('div');
+  tarjeta.className = 'pantalla__tarjeta';
+  tarjeta.append(...hijos);
+  return tarjeta;
+}
+
+function textoSocial(texto) {
+  const p = document.createElement('p');
+  p.className = 'pantalla__nota';
+  p.textContent = texto;
+  return tarjetaSocial(p);
+}
+
+let pintandoSocial = 0;
+async function pintarSocial(cancion) {
+  const caja = el.pantallaSocial;
+  const audio = pantallaAudio;
+  const este = ++pintandoSocial;
+  if (!nube.conectado()) return caja.replaceChildren(textoSocial('Entra a tu cuenta (en Perfil) para dar me gusta, ver quién la subió y comentar.'));
+  if (!audio) return caja.replaceChildren(textoSocial('Esta canción todavía no está en tu cuenta. En cuanto se suba, aquí verás los me gusta y los comentarios.'));
+
+  let datos;
+  try {
+    const [fila, reacciones, comentarios, red] = await Promise.all([
+      nube.audioPorId(audio), nube.reaccionesDe(audio), nube.comentariosDe(audio), nube.red(),
+    ]);
+    datos = { fila, reacciones, comentarios, red };
+  } catch (error) {
+    if (este === pintandoSocial) caja.replaceChildren(textoSocial(`No se pudo cargar: ${error.message}`));
+    return;
+  }
+  if (este !== pintandoSocial || !pantallaAbierta) return;
+  const { fila, reacciones, comentarios, red } = datos;
+  if (!fila) return caja.replaceChildren(textoSocial('Este audio ya no está en Muzzy.'));
+  const yo = nube.perfil();
+  const dueno = fila.perfil;
+
+  // Me gusta / No me gusta
+  const reaccion = document.createElement('div');
+  reaccion.className = 'pantalla__reacciones';
+  const botonReaccion = (valor, nombreIcono, cuantos, etiqueta) => {
+    const boton = document.createElement('button');
+    boton.className = `pantalla__reaccion${reacciones.mia === valor ? ' pantalla__reaccion--activa' : ''}`;
+    boton.setAttribute('aria-pressed', String(reacciones.mia === valor));
+    boton.setAttribute('aria-label', etiqueta);
+    boton.innerHTML = `${icono(nombreIcono, 22)}<span>${cuantos.toLocaleString('es-MX')}</span>`;
+    boton.addEventListener('click', async () => {
+      const nuevo = reacciones.mia === valor ? 0 : valor;
+      try {
+        await nube.reaccionar(audio, nuevo);
+      } catch (error) {
+        return mostrarAviso(`No se pudo: ${error.message}`, 3000);
+      }
+      pintarSocial(cancion);
+    });
+    return boton;
+  };
+  reaccion.append(
+    botonReaccion(1, 'meGusta', reacciones.likes, 'Me gusta'),
+    botonReaccion(-1, 'noMeGusta', reacciones.dislikes, 'No me gusta'),
+  );
+
+  // Quién la subió
+  const subio = document.createElement('div');
+  subio.className = 'pantalla__dueno';
+  const info = document.createElement('div');
+  info.className = 'persona__info';
+  info.innerHTML = '<p class="pantalla__nota">Subida por</p><p class="persona__usuario"></p>';
+  info.children[1].textContent = dueno ? `@${dueno.usuario}` : 'alguien';
+  subio.append(crearAvatar(dueno, 44), info);
+  if (dueno && dueno.id !== yo.id) {
+    const loSigo = red.siguiendo.some((s) => s.seguidor === yo.id && s.seguido === dueno.id);
+    subio.append(botonPerfil(loSigo ? 'Siguiendo' : 'Seguir', {
+      acento: !loSigo,
+      alTocar: async (evento) => {
+        evento.stopPropagation();
+        await cambiarSeguir(dueno, loSigo);
+        pintarSocial(cancion);
+      },
+    }));
+  }
+  if (dueno) subio.addEventListener('click', () => { cerrarPantalla(); abrirPerfil(dueno); });
+
+  // Comentarios
+  const titulo = document.createElement('p');
+  titulo.className = 'pantalla__titulo-seccion';
+  titulo.textContent = `Comentarios · ${comentarios.length}`;
+  const formulario = document.createElement('form');
+  formulario.className = 'pantalla__comentar';
+  formulario.innerHTML = '<input class="campo__entrada" maxlength="500" placeholder="Agrega un comentario…" aria-label="Escribe un comentario"><button class="boton-perfil boton-perfil--acento" type="submit">Enviar</button>';
+  formulario.prepend(crearAvatar(yo, 32));
+  formulario.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    const campo = formulario.querySelector('input');
+    const texto = campo.value.trim();
+    if (!texto) return;
+    campo.disabled = true;
+    try {
+      await nube.comentar(audio, texto);
+      campo.value = '';
+      pintarSocial(cancion);
+    } catch (error) {
+      mostrarAviso(`No se pudo comentar: ${error.message}`, 3000);
+    } finally {
+      campo.disabled = false;
+    }
+  });
+  const lista = document.createElement('ul');
+  lista.className = 'pantalla__comentarios';
+  for (const comentario of comentarios) {
+    const li = document.createElement('li');
+    li.className = 'comentario';
+    const cuerpo = document.createElement('div');
+    cuerpo.className = 'comentario__cuerpo';
+    cuerpo.innerHTML = '<p class="comentario__quien"></p><p class="comentario__texto"></p>';
+    cuerpo.children[0].textContent = `@${comentario.perfil?.usuario ?? 'alguien'} · ${haceCuanto(comentario.creado)}`;
+    cuerpo.children[1].textContent = comentario.texto;
+    li.append(crearAvatar(comentario.perfil, 32), cuerpo);
+    if (comentario.usuario === yo.id || fila.dueno === yo.id) {
+      const borrar = document.createElement('button');
+      borrar.className = 'boton-icono comentario__borrar';
+      borrar.setAttribute('aria-label', 'Borrar comentario');
+      borrar.innerHTML = icono('borrar', 18);
+      borrar.addEventListener('click', async () => {
+        try {
+          await nube.borrarComentario(comentario.id);
+          pintarSocial(cancion);
+        } catch (error) {
+          mostrarAviso(`No se pudo borrar: ${error.message}`, 3000);
+        }
+      });
+      li.append(borrar);
+    }
+    lista.append(li);
+  }
+  if (!comentarios.length) {
+    const nada = document.createElement('li');
+    nada.className = 'pantalla__nota';
+    nada.textContent = 'Nadie ha comentado todavía. ¡Sé el primero!';
+    lista.append(nada);
+  }
+
+  caja.replaceChildren(
+    tarjetaSocial(reaccion),
+    tarjetaSocial(subio),
+    tarjetaSocial(titulo, formulario, lista),
+  );
+}
+
+/** Llegó un me gusta o comentario nuevo (de cualquiera): si es de lo que ves, se actualiza. */
+function alCambiarAudioSocial(audio) {
+  if (pantallaAbierta && audio && audio === pantallaAudio) pintarSocial(reproductor.estado().cancion);
+}
 
 /* ---------- Avisos ---------- */
 
