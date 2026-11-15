@@ -11,6 +11,11 @@
 // seekbackward: si existen, los botones del carro pueden convertirse en
 // "±10 segundos" en vez de "canción siguiente / anterior".
 
+import { SesionNativa, aDataURL } from './nativo.js';
+
+// En la APK, los controles los pone Android (SesionNativa). En el navegador, Chrome
+// los arma con navigator.mediaSession. Llamamos a los dos: el que no aplica no hace nada.
+
 const PORTADA_POR_DEFECTO = new URL('../icons/portada.png', import.meta.url).href;
 
 // Si la canción lleva más de esto, "anterior" vuelve al inicio en vez de cambiar.
@@ -294,12 +299,23 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
   /* ---------- MediaSession ---------- */
 
   function actualizarMediaSession(cancion) {
-    if (!('mediaSession' in navigator)) return;
     const portada = portadaActual();
+    const datos = { title: cancion.titulo, artist: cancion.artista, album: cancion.album || 'Muz15' };
+
+    if (SesionNativa) {
+      // Primero sin portada (para que el título salga ya) y luego con ella.
+      SesionNativa.setMetadata({ ...datos, artwork: [] }).catch(() => {});
+      aDataURL(portada)
+        .then((src) => {
+          if (lista[indice]?.id !== cancion.id) return; // ya cambió de canción
+          return SesionNativa.setMetadata({ ...datos, artwork: [{ src, sizes: '512x512' }] });
+        })
+        .catch((error) => console.warn('Portada para Android:', error.message));
+    }
+
+    if (!('mediaSession' in navigator)) return;
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: cancion.titulo,
-      artist: cancion.artista,
-      album: cancion.album || 'Muz15',
+      ...datos,
       artwork: [
         { src: portada, sizes: '512x512' },
         { src: portada, sizes: '256x256' },
@@ -307,7 +323,26 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
     });
   }
 
+  function cambiarEstadoSesion(estadoSesion) {
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = estadoSesion;
+    SesionNativa?.setPlaybackState({ playbackState: estadoSesion }).catch(() => {});
+  }
+
   function registrarControles() {
+    if (SesionNativa) {
+      const nativos = {
+        play: () => activa.play(),
+        pause: () => alternar(),
+        stop: () => alternar(),
+        previoustrack: anterior,
+        nexttrack: () => siguiente(),
+        seekto: (detalles) => irA(detalles.seekTime ?? 0),
+      };
+      for (const [action, manejador] of Object.entries(nativos)) {
+        SesionNativa.setActionHandler({ action }, manejador).catch(() => {});
+      }
+    }
+
     if (!('mediaSession' in navigator)) return;
     const acciones = {
       play: () => activa.play(),
@@ -333,15 +368,17 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
   // la pantalla bloqueada muestre "1:23 / 3:45" con la barra. No hace falta
   // llamarlo cada segundo: el sistema avanza la barra solo mientras suena.
   function actualizarPosicion() {
-    if (!navigator.mediaSession?.setPositionState) return;
     const duracion = activa.duration;
     if (!Number.isFinite(duracion) || duracion <= 0) return;
+    const posicionActual = {
+      duration: duracion,
+      playbackRate: activa.playbackRate || 1,
+      position: Math.min(activa.currentTime, duracion),
+    };
+    SesionNativa?.setPositionState(posicionActual).catch(() => {});
+    if (!navigator.mediaSession?.setPositionState) return;
     try {
-      navigator.mediaSession.setPositionState({
-        duration: duracion,
-        playbackRate: activa.playbackRate || 1,
-        position: Math.min(activa.currentTime, duracion),
-      });
+      navigator.mediaSession.setPositionState(posicionActual);
     } catch (error) {
       console.warn('No se pudo actualizar la barra de tiempo:', error.message);
     }
@@ -354,12 +391,14 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
 
   for (const bandeja of bandejas) {
     bandeja.addEventListener('play', soloActiva(() => {
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+      cambiarEstadoSesion('playing');
       actualizarPosicion();
       avisar();
     }));
     bandeja.addEventListener('pause', soloActiva(() => {
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+      // Al terminar una canción también llega "pause"; si va a seguir otra, no avisamos
+      // "pausado" a Android, para que no quite los controles en ese instante.
+      if (!activa.ended) cambiarEstadoSesion('paused');
       actualizarPosicion();
       avisar();
     }));
@@ -436,6 +475,7 @@ export function crearReproductor(bandejas, { obtenerFuente, alCambiar, alProgres
       terminarFundido();
       if (lugar === indice) {
         vaciar(activa);
+        cambiarEstadoSesion('none');
         indice = -1;
       } else if (lugar < indice) {
         indice--;

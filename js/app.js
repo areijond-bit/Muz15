@@ -9,6 +9,7 @@ import { leerMetadatos } from './metadatos.js';
 import { crearReproductor } from './reproductor.js';
 import * as servidor from './servidor.js';
 import { abrirHoja, confirmar } from './hoja.js';
+import { esApk, AppNativa } from './nativo.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -939,6 +940,39 @@ el.enviarPC.addEventListener('click', async () => {
   mostrarAviso(`${mensaje}. En un par de minutos aparecen en tu cel, en la pestaña Mi PC.`, 8000);
 });
 
+/* ---------- Actualizaciones de la APK ---------- */
+// Las pantallas y la lógica se actualizan solas (la APK carga esta página de GitHub).
+// Solo cuando cambia la parte nativa hay una APK nueva: aquí avisamos y la bajas
+// con un toque. Se instala ENCIMA de la anterior, sin perder nada.
+
+const REPO = 'areijond-bit/Muz15';
+const DESCARGA_APK = `https://github.com/${REPO}/releases/latest/download/Muz15.apk`;
+let versionApk = null; // { numero, nombre } de la APK instalada
+
+async function revisarActualizacion() {
+  if (!esApk || !AppNativa) return;
+  try {
+    const info = await AppNativa.getInfo();
+    versionApk = { numero: Number(info.build), nombre: info.version };
+    const ultima = await (await fetch(`https://api.github.com/repos/${REPO}/releases/latest`)).json();
+    const numeroUltima = Number(String(ultima.tag_name ?? '').replace(/\D/g, ''));
+    if (numeroUltima > versionApk.numero) {
+      abrirHoja({
+        titulo: 'Hay una versión nueva de Muz15',
+        subtitulo: 'Se instala encima de la que tienes: no pierdes tus canciones ni tus listas.',
+        acciones: [{
+          texto: '⬇ Descargar e instalar',
+          // Se abre en el navegador, que baja la APK; luego tócala para instalar.
+          alElegir: () => { location.href = DESCARGA_APK; },
+        }],
+      });
+    }
+  } catch (error) {
+    console.warn('No se pudo revisar si hay versión nueva:', error.message);
+  }
+}
+revisarActualizacion();
+
 /* ---------- Ajustes ---------- */
 
 // Transición entre canciones: 0 = sin pausa (cambio instantáneo); si no, segundos de fundido.
@@ -957,9 +991,10 @@ try {
 
 el.ajustes.addEventListener('click', () => {
   const actual = reproductor.estado().fundido;
+  const version = versionApk ? ` · Muz15 APK ${versionApk.nombre}` : '';
   abrirHoja({
     titulo: 'Transición entre canciones',
-    subtitulo: 'Las canciones vinculadas (⛓) siempre van pegadas, sin fundido.',
+    subtitulo: `Las canciones vinculadas (⛓) siempre van pegadas, sin fundido.${version}`,
     acciones: OPCIONES_FUNDIDO.map(({ segundos, texto }) => ({
       texto: segundos === actual ? `${texto}  ✓` : texto,
       alElegir: () => {
