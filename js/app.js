@@ -2190,6 +2190,49 @@ AppNativa?.addListener('backButton', () => {
   AppNativa.minimizeApp();
 });
 
+/** Espera a que la versión nueva termine de bajarse. @returns 'activated' | 'redundant' (falló) | 'tiempo' */
+function esperarActivado(trabajador, maximoMs = 45000) {
+  return new Promise((resolve) => {
+    if (trabajador.state === 'activated' || trabajador.state === 'redundant') return resolve(trabajador.state);
+    const tiempo = setTimeout(() => resolve('tiempo'), maximoMs);
+    trabajador.addEventListener('statechange', () => {
+      if (trabajador.state === 'activated' || trabajador.state === 'redundant') {
+        clearTimeout(tiempo);
+        resolve(trabajador.state);
+      }
+    });
+  });
+}
+
+/**
+ * Pone la versión nueva: recarga Muzzy. aFuerza = la copia guardada de la app se
+ * atoró: se borra y se baja entera (las canciones no se tocan: viven aparte).
+ */
+async function aplicarActualizacion({ aFuerza = false } = {}) {
+  const recargar = async () => {
+    if (aFuerza) {
+      try {
+        const registros = await navigator.serviceWorker?.getRegistrations() ?? [];
+        await Promise.all(registros.map((r) => r.unregister()));
+        const nombres = await caches.keys();
+        await Promise.all(nombres.filter((n) => n.startsWith('muz15-')).map((n) => caches.delete(n)));
+      } catch (error) {
+        console.warn('No se pudo limpiar la copia de la app:', error.message);
+      }
+    }
+    location.reload();
+  };
+  if (!reproductor.estado().sonando) {
+    mostrarAviso('Actualizando Muzzy…');
+    return recargar();
+  }
+  abrirHoja({
+    titulo: 'La versión nueva de Muzzy está lista',
+    subtitulo: 'Se aplica en un segundo (la canción se detiene).',
+    acciones: [{ icono: 'actualizar', texto: 'Actualizar ahora', alElegir: recargar }],
+  });
+}
+
 /** La versión de la app guardada en el teléfono (ej. "v14"). */
 async function versionWeb() {
   try {
@@ -2207,23 +2250,32 @@ async function buscarActualizaciones() {
   if (!navigator.onLine) return mostrarAviso('Sin internet: conéctate para buscar actualizaciones.', 4000);
   mostrarAviso('Buscando actualizaciones…');
 
-  let hayAppNueva = false;
+  // ¿Qué versión hay en internet y cuál tengo? (sw.js dice la versión: "muz15-vNN")
+  const enInternet = await fetch('sw.js', { cache: 'no-store' })
+    .then((r) => r.text()).then((t) => t.match(/muz15-(v\d+)/)?.[1] ?? null).catch(() => null);
+  const aqui = await versionWeb();
+
+  let registro = null;
+  let nuevo = null;
   try {
-    const registro = await navigator.serviceWorker?.getRegistration();
+    registro = await navigator.serviceWorker?.getRegistration();
     if (registro) {
       await registro.update();
-      hayAppNueva = Boolean(registro.installing || registro.waiting);
+      nuevo = registro.installing || registro.waiting;
     }
   } catch (error) {
     console.warn('No se pudo revisar la app:', error.message);
   }
 
-  const hayApkNueva = await revisarActualizacion(); // si la hay, ya abrió su aviso
+  if (nuevo || (enInternet && aqui && enInternet !== aqui)) {
+    mostrarAviso(`Bajando la versión nueva (${enInternet ?? 'nueva'})…`);
+    const estado = nuevo ? await esperarActivado(nuevo) : 'atorada';
+    // Si se bajó bien, se recarga; si se atoró o falló, se baja todo de nuevo.
+    return aplicarActualizacion({ aFuerza: estado !== 'activated' });
+  }
 
-  if (hayAppNueva) {
-    // Al terminar de bajar, la app se recarga sola (o pregunta, si está sonando música).
-    mostrarAviso('Hay mejoras nuevas: se aplican en unos segundos.', 6000);
-  } else if (!hayApkNueva) {
+  const hayApkNueva = await revisarActualizacion(); // si la hay, ya abrió su aviso
+  if (!hayApkNueva) {
     const partes = [`app ${await versionWeb() ?? ''}`.trim()];
     if (versionApk) partes.push(`APK ${versionApk.nombre}`);
     mostrarAviso(`Ya tienes la versión más nueva (${partes.join(' · ')}).`, 4000);
