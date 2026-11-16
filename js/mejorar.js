@@ -2,12 +2,14 @@
 // sin que se oiga raro.
 //
 // No inventa lo que el archivo no tiene (eso suena falso): lo "masteriza" con cuidado,
-// como se hace en un estudio, con pasos suaves:
-//   1. Quita el retumbe que no se oye (menos de 30 Hz) y que solo ensucia.
-//   2. Ecualizador: un poco más de graves (cuerpo), menos "lodo" en los medios-bajos,
-//      más presencia en las voces y más brillo arriba.
-//   3. Estéreo un poco más abierto.
-//   4. Volumen parejo: un compresor suave y un limitador para que nunca se sature.
+// como se hace en un estudio. Primero MIDE el audio y según eso decide:
+//   - Volumen: lo deja al nivel de Spotify/YouTube (-14 dB). Si estaba bajito lo sube;
+//     si estaba demasiado fuerte o saturado, lo BAJA (subirle a algo saturado lo empeora).
+//   - Si está saturado: no le agrega graves ni compresión (lo ensuciarían más) y suaviza
+//     los agudos ásperos que deja la saturación.
+//   - Si no: un poco más de graves (cuerpo), menos "lodo", más presencia en las voces,
+//     más brillo, estéreo un poco más abierto y un compresor suave.
+//   - Siempre: quita el retumbe que no se oye (menos de 30 Hz) y nunca toca el tope.
 // Antes de guardar puedes comparar Original / Mejorada al instante.
 
 import { icono } from './iconos.js';
@@ -18,6 +20,7 @@ const PRESUPUESTO_BYTES = Math.min(1200, (navigator.deviceMemory || 4) * 150) * 
 const TASA = 48000;
 const KBPS = 160; // Opus estéreo a 160 kbps: suena igual que lo que sale del ecualizador
 const PICO_MAXIMO = 0.89; // -1 dB: deja espacio para que al guardarlo (Opus) nunca toque el tope
+const VOLUMEN_OBJETIVO_DB = -14; // el nivel al que Spotify y YouTube dejan las canciones
 
 const NIVELES = {
   suave: { nombre: 'Suave', fuerza: 0.6 },
@@ -29,23 +32,44 @@ const mmss = (s) => {
   const t = Math.max(0, Math.floor(s));
   return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
 };
+const enDb = (x) => 20 * Math.log10(Math.max(x, 1e-6));
 
-/** Qué tan fuerte suena (promedio RMS de una muestra del audio). */
-function volumenDe(sonido) {
+/**
+ * Mide el audio: volumen (RMS), pico y cuántas veces "pega en el techo" (saturación:
+ * varias muestras seguidas al máximo, que es cuando el sonido se recorta y raspa).
+ */
+function medir(sonido) {
   let suma = 0;
   let cuenta = 0;
+  let pico = 0;
+  let recortes = 0;
   for (let c = 0; c < Math.min(2, sonido.numberOfChannels); c++) {
     const datos = sonido.getChannelData(c);
-    for (let i = 0; i < datos.length; i += 16) { suma += datos[i] * datos[i]; cuenta++; }
+    let seguidas = 0;
+    for (let i = 0; i < datos.length; i++) {
+      const v = Math.abs(datos[i]);
+      if (i % 8 === 0) { suma += v * v; cuenta++; }
+      if (v > pico) pico = v;
+      if (v >= 0.985) { if (++seguidas === 3) recortes++; } else seguidas = 0;
+    }
   }
-  return Math.sqrt(suma / Math.max(1, cuenta)) || 0.0001;
+  const volumen = Math.sqrt(suma / Math.max(1, cuenta)) || 1e-6;
+  const porMinuto = recortes / Math.max(1 / 60, sonido.duration / 60);
+  return {
+    volumen,
+    pico,
+    porMinuto,
+    // Muy fuerte (más de -9 dB, "guerra del volumen") o que se recorta seguido.
+    saturada: enDb(volumen) > -9 || porMinuto > 20,
+  };
 }
 
 /**
- * Arma la cadena de efectos (igual para escuchar en vivo y para guardar).
+ * Arma la cadena de efectos (la misma para escuchar en vivo y para guardar).
+ * @param final  ganancia del final (deja el volumen en el nivel objetivo)
  * @returns {{entrada: AudioNode, salida: AudioNode}}
  */
-function crearCadena(ctx, { fuerza }, volumen) {
+function crearCadena(ctx, { fuerza }, medida, final = 1) {
   const nodos = [];
   const filtro = (tipo, frecuencia, ganancia = 0, q = 0.7) => {
     const f = ctx.createBiquadFilter();
@@ -57,23 +81,30 @@ function crearCadena(ctx, { fuerza }, volumen) {
     return f;
   };
 
-  // Siempre en estéreo (si el audio es mono, se copia a los dos lados).
+  // Siempre en estéreo (si el audio es mono, se copia a los dos lados). Entra a un nivel
+  // parejo para que el compresor trabaje igual con cualquier canción.
   const entrada = ctx.createGain();
   entrada.channelCount = 2;
   entrada.channelCountMode = 'explicit';
   entrada.channelInterpretation = 'speakers';
-  // Volumen parejo: los audios bajitos suben, los muy fuertes bajan un poco.
-  entrada.gain.value = Math.min(2.5, Math.max(0.6, 0.16 / volumen));
+  entrada.gain.value = Math.min(4, Math.max(0.25, 0.16 / medida.volumen));
   nodos.push(entrada);
 
   filtro('highpass', 30, 0, 0.7);
-  filtro('lowshelf', 110, 2 * fuerza);
-  filtro('peaking', 350, -1.5 * fuerza, 1);
-  filtro('peaking', 3200, 2 * fuerza, 0.9);
-  filtro('highshelf', 8000, 3.5 * fuerza);
+  if (medida.saturada) {
+    // Saturada: nada de graves extra; se suaviza la aspereza (2.5–5 kHz) y un poquito de aire.
+    filtro('peaking', 350, -1 * fuerza, 1);
+    filtro('peaking', 3500, -1.5 * fuerza, 0.8);
+    filtro('highshelf', 10000, 1 * fuerza);
+  } else {
+    filtro('lowshelf', 110, 2 * fuerza);
+    filtro('peaking', 350, -1.5 * fuerza, 1);
+    filtro('peaking', 3200, 2 * fuerza, 0.9);
+    filtro('highshelf', 8000, 3.5 * fuerza);
+  }
 
   // Estéreo más abierto: un poco más de lo que es distinto entre izquierda y derecha.
-  const ancho = 1 + 0.2 * fuerza;
+  const ancho = 1 + (medida.saturada ? 0.1 : 0.2) * fuerza;
   const separar = ctx.createChannelSplitter(2);
   const juntar = ctx.createChannelMerger(2);
   const mezcla = (de, a, cuanto) => {
@@ -86,26 +117,56 @@ function crearCadena(ctx, { fuerza }, volumen) {
   mezcla(1, 0, (1 - ancho) / 2);
   mezcla(1, 1, (1 + ancho) / 2);
   mezcla(0, 1, (1 - ancho) / 2);
+  for (let i = 0; i < nodos.length - 1; i++) nodos[i].connect(nodos[i + 1]);
+  nodos.at(-1).connect(separar);
 
-  const compresor = ctx.createDynamicsCompressor();
-  compresor.threshold.value = -18;
-  compresor.knee.value = 12;
-  compresor.ratio.value = 1.3 + 0.4 * fuerza;
-  compresor.attack.value = 0.03; // deja pasar el golpe de la batería (si no, suena aplastado)
-  compresor.release.value = 0.2;
-
+  let ultimo = juntar;
+  if (!medida.saturada) { // a lo saturado ya le sobra compresión
+    const compresor = ctx.createDynamicsCompressor();
+    compresor.threshold.value = -18;
+    compresor.knee.value = 12;
+    compresor.ratio.value = 1.3 + 0.4 * fuerza;
+    compresor.attack.value = 0.03; // deja pasar el golpe de la batería (si no, suena aplastado)
+    compresor.release.value = 0.2;
+    ultimo.connect(compresor);
+    ultimo = compresor;
+  }
+  const volumenFinal = ctx.createGain();
+  volumenFinal.gain.value = final;
+  ultimo.connect(volumenFinal);
+  // Red de seguridad: en vivo nada pasa del tope (al guardar ya se ajustó antes).
   const limitador = ctx.createDynamicsCompressor();
-  limitador.threshold.value = -1.5;
+  limitador.threshold.value = -1;
   limitador.knee.value = 0;
   limitador.ratio.value = 20;
   limitador.attack.value = 0.001;
   limitador.release.value = 0.08;
-
-  for (let i = 0; i < nodos.length - 1; i++) nodos[i].connect(nodos[i + 1]);
-  nodos.at(-1).connect(separar);
-  juntar.connect(compresor);
-  compresor.connect(limitador);
+  volumenFinal.connect(limitador);
   return { entrada, salida: limitador };
+}
+
+/**
+ * Procesa el audio entero con un nivel y lo deja en el volumen objetivo sin tocar el tope.
+ * @returns {Promise<{buffer: AudioBuffer, final: number}>} final = ganancia que se aplicó al final
+ */
+async function procesar(sonido, nivel, medida) {
+  const offline = new OfflineAudioContext({ numberOfChannels: 2, length: sonido.length, sampleRate: TASA });
+  const origen = offline.createBufferSource();
+  origen.buffer = sonido;
+  const { entrada, salida } = crearCadena(offline, NIVELES[nivel], medida, 1);
+  origen.connect(entrada);
+  salida.connect(offline.destination);
+  origen.start();
+  const buffer = await offline.startRendering();
+  const salidaMedida = medir(buffer);
+  const objetivo = 10 ** (VOLUMEN_OBJETIVO_DB / 20);
+  // Al volumen objetivo… pero sin que el punto más fuerte pase de -1 dB.
+  const final = Math.min(objetivo / salidaMedida.volumen, PICO_MAXIMO / salidaMedida.pico);
+  for (let c = 0; c < 2; c++) {
+    const d = buffer.getChannelData(c);
+    for (let i = 0; i < d.length; i++) d[i] *= final;
+  }
+  return { buffer, final, volumen: salidaMedida.volumen * final };
 }
 
 /**
@@ -132,7 +193,7 @@ export async function abrirMejorador({ blob, titulo, avisar, alGuardar }) {
     </div>
     <p class="recortador__estado">Analizando el audio…</p>
     <div class="mejorador__editor" hidden>
-      <p class="mejorador__ayuda">Más claro, con más cuerpo y el volumen parejo, sin saturar. Escúchalo y compara con el original antes de guardar.</p>
+      <p class="mejorador__diagnostico" data-diagnostico></p>
       <div class="mejorador__reproductor">
         <button class="recortador__play" data-play aria-label="Reproducir">${icono('play', 28)}</button>
         <input class="mejorador__barra" type="range" min="0" step="0.1" value="0" aria-label="Posición">
@@ -170,7 +231,7 @@ export async function abrirMejorador({ blob, titulo, avisar, alGuardar }) {
 
   // ---- Abrir y medir el audio ----
   let sonido;
-  let volumen;
+  let medida;
   try {
     const duracion = await new Promise((resolve, reject) => {
       audio.onloadedmetadata = () => resolve(audio.duration);
@@ -182,7 +243,7 @@ export async function abrirMejorador({ blob, titulo, avisar, alGuardar }) {
     }
     if (!await sePuedeComprimir(2, TASA)) throw new Error('Este aparato no puede guardar el audio mejorado.');
     sonido = await new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: TASA }).decodeAudioData(await blob.arrayBuffer());
-    volumen = volumenDe(sonido);
+    medida = medir(sonido);
   } catch (error) {
     if (!cerrado) {
       cerrar();
@@ -191,25 +252,55 @@ export async function abrirMejorador({ blob, titulo, avisar, alGuardar }) {
     return;
   }
   if (cerrado) return;
+
+  // ---- Procesar (una vez por nivel) y decir qué se le hizo ----
+  let nivel = 'normal';
+  let version = 'mejorada';
+  const hechas = new Map(); // nivel → resultado (solo se guarda el último, para no llenar la memoria)
+  const resultado = async (n) => {
+    if (!hechas.has(n)) {
+      hechas.clear();
+      hechas.set(n, procesar(sonido, n, medida));
+    }
+    return hechas.get(n);
+  };
+  const diagnosticar = ({ volumen }) => {
+    const cambio = Math.round(enDb(volumen) - enDb(medida.volumen));
+    const estado = medida.saturada
+      ? 'Este audio está muy fuerte o saturado: se le baja el volumen y se suaviza lo áspero, sin agregarle graves ni compresión.'
+      : enDb(medida.volumen) < -20
+        ? 'Este audio está bajito: se sube a un volumen normal, con más claridad y cuerpo.'
+        : 'Se le da más claridad y cuerpo, con el volumen parejo.';
+    const volumenTexto = Math.abs(cambio) < 1 ? 'El volumen queda casi igual.'
+      : cambio > 0 ? `Volumen: +${cambio} dB.` : `Volumen: ${cambio} dB (más bajo, más limpio).`;
+    $('[data-diagnostico]').textContent = `${estado} ${volumenTexto} Nunca satura.`;
+  };
+
+  try {
+    diagnosticar(await resultado(nivel));
+  } catch (error) {
+    if (!cerrado) { cerrar(); avisar(`No se pudo mejorar: ${error.message}`, 5000); }
+    return;
+  }
+  if (cerrado) return;
   $('.recortador__estado').hidden = true;
   $('.mejorador__editor').hidden = false;
   $('[data-guardar]').disabled = false;
 
   // ---- Escuchar en vivo (Original / Mejorada) ----
-  let nivel = 'normal';
-  let version = 'mejorada';
   let fuente = null;
   let cadena = null;
-  const conectar = () => {
+  const conectar = async () => {
     if (!ctx) {
       ctx = new AudioContext();
       fuente = ctx.createMediaElementSource(audio);
     }
+    const { final } = await resultado(nivel);
     fuente.disconnect();
     cadena?.salida.disconnect();
     cadena = null;
     if (version === 'mejorada') {
-      cadena = crearCadena(ctx, NIVELES[nivel], volumen);
+      cadena = crearCadena(ctx, NIVELES[nivel], medida, final);
       fuente.connect(cadena.entrada);
       cadena.salida.connect(ctx.destination);
     } else {
@@ -225,14 +316,21 @@ export async function abrirMejorador({ blob, titulo, avisar, alGuardar }) {
     b.addEventListener('click', () => { version = b.dataset.version; pintarBotones(); if (ctx) conectar(); });
   }
   for (const b of caja.querySelectorAll('[data-nivel]')) {
-    b.addEventListener('click', () => { nivel = b.dataset.nivel; version = 'mejorada'; pintarBotones(); if (ctx) conectar(); });
+    b.addEventListener('click', async () => {
+      nivel = b.dataset.nivel;
+      version = 'mejorada';
+      pintarBotones();
+      $('[data-diagnostico]').textContent = 'Preparando…';
+      diagnosticar(await resultado(nivel));
+      if (ctx) conectar();
+    });
   }
 
   const barra = $('.mejorador__barra');
   barra.max = String(sonido.duration);
   const play = $('[data-play]');
   play.addEventListener('click', async () => {
-    if (!ctx) conectar();
+    if (!ctx) await conectar();
     await ctx.resume();
     if (audio.paused) audio.play(); else audio.pause();
   });
@@ -252,27 +350,13 @@ export async function abrirMejorador({ blob, titulo, avisar, alGuardar }) {
     guardar.classList.add('cargando');
     guardar.textContent = 'Mejorando…';
     try {
-      const offline = new OfflineAudioContext({ numberOfChannels: 2, length: sonido.length, sampleRate: TASA });
-      const origen = offline.createBufferSource();
-      origen.buffer = sonido;
-      const { entrada, salida } = crearCadena(offline, NIVELES[nivel], volumen);
-      origen.connect(entrada);
-      salida.connect(offline.destination);
-      origen.start();
-      const mejorada = await offline.startRendering();
-      // Que el punto más fuerte quede justo debajo del tope (nunca satura).
-      let pico = 0;
-      for (let c = 0; c < 2; c++) for (const v of mejorada.getChannelData(c)) pico = Math.max(pico, Math.abs(v));
-      if (pico > PICO_MAXIMO) {
-        const factor = PICO_MAXIMO / pico;
-        for (let c = 0; c < 2; c++) { const d = mejorada.getChannelData(c); for (let i = 0; i < d.length; i++) d[i] *= factor; }
-      }
-      const datos = await codificar(mejorada, 0, mejorada.duration, {
+      const { buffer } = await resultado(nivel);
+      const datos = await codificar(buffer, 0, buffer.duration, {
         kbps: KBPS,
         alAvanzar: (f) => { guardar.textContent = `Guardando · ${Math.round(f * 100)}%`; },
       });
       const nombre = $('[data-nombre]').value.trim() || titulo;
-      await alGuardar([{ titulo: nombre, datos, tipo: 'audio/webm', duracion: mejorada.duration }]);
+      await alGuardar([{ titulo: nombre, datos, tipo: 'audio/webm', duracion: buffer.duration }]);
       cerrar();
     } catch (error) {
       avisar(`No se pudo guardar: ${error.message}`, 5000);

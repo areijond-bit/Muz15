@@ -4274,6 +4274,31 @@ async function mejorarCancion(cancion) {
   });
 }
 
+/** Mejora una canción de Buscar (de quien sea): se baja, se mejora y la copia queda en Mis descargas. */
+async function mejorarAudioNube(cancion) {
+  mostrarAviso(`Bajando "${cancion.titulo}" para mejorarla…`);
+  let audio;
+  let portada = null;
+  try {
+    const respuesta = await fetch(cancion.archivo);
+    if (!respuesta.ok) throw new Error(`no se pudo bajar (${respuesta.status})`);
+    audio = await respuesta.blob();
+    if (cancion.portadaUrl) {
+      const datos = await fetch(cancion.portadaUrl).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null);
+      if (datos?.byteLength) portada = { datos, tipo: 'image/jpeg' };
+    }
+  } catch (error) {
+    return mostrarAviso(`No se pudo abrir: ${error.message}`, 4000);
+  }
+  el.aviso.hidden = true;
+  abrirMejorador({
+    blob: audio,
+    titulo: `${cancion.titulo} (mejorada)`,
+    avisar: mostrarAviso,
+    alGuardar: (partes) => guardarPartes(partes, { artista: cancion.artista ?? '', album: cancion.album ?? '', portada }),
+  });
+}
+
 async function recortarCancion(cancion) {
   mostrarAviso(`Abriendo "${cancion.titulo}"…`);
   let audio;
@@ -4831,6 +4856,7 @@ function menuAudio(cancion) {
       localDe(cancion)
         ? { icono: 'descargado', texto: 'Ya está en tu biblioteca', alElegir: () => {} }
         : { icono: 'descargar', texto: 'Guardar en mi biblioteca', alElegir: () => guardarAudio(cancion) },
+      { icono: 'ecualizador', texto: 'Mejorar sonido (se guarda como copia tuya)', alElegir: () => mejorarAudioNube(cancion) },
       ...(cancion.artista ? [{ icono: 'nota', texto: `Ver todas las de ${cancion.artista}`, alElegir: () => abrirArtista(cancion.artista) }] : []),
       ...(cancion.perfilDueno && cancion.dueno !== perfilVisto?.id
         ? [{ icono: 'persona', texto: `Ver perfil de @${cancion.duenoUsuario}`, alElegir: () => abrirPerfil(cancion.perfilDueno) }]

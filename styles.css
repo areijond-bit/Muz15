@@ -1457,7 +1457,7 @@ body.con-pantalla { overflow: hidden; }
 .recortador__parte--borrar .recortador__dato { text-decoration: line-through; }
 .mejorador__editor { display: flex; flex-direction: column; gap: var(--espacio-s); }
 .mejorador__editor[hidden] { display: none; }
-.mejorador__ayuda { margin: 0 0 var(--espacio-s); color: var(--color-texto-suave); font-size: var(--texto-s); }
+.mejorador__diagnostico { margin: 0 0 var(--espacio-s); padding: var(--espacio-s) var(--espacio-m); border-radius: var(--radio-m); background: var(--color-superficie); font-size: var(--texto-s); }
 .mejorador__reproductor { display: flex; align-items: center; gap: var(--espacio-m); margin-bottom: var(--espacio-s); }
 .mejorador__barra { flex: 1; min-width: 0; accent-color: var(--color-acento); }
 .mejorador__tiempo { flex: none; color: var(--color-texto-suave); font-size: var(--texto-xs); font-variant-numeric: tabular-nums; }
