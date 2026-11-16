@@ -1,7 +1,7 @@
 # apk.yml — Compila la APK de Muzzy en GitHub y la publica en "Releases".
 #
-# Corre sola cuando cambia la parte nativa (android/, capacitor.config.json,
-# package.json) y también a mano desde la pestaña Actions → "APK" → Run workflow.
+# Corre sola cuando cambia la parte nativa (android/, capacitor.config.json) y
+# también a mano desde la pestaña Actions → "APK" → Run workflow.
 # Los cambios normales de la app (HTML, CSS, JS) NO necesitan APK nueva: la APK
 # carga la página de GitHub Pages y se actualiza sola.
 #
@@ -18,8 +18,6 @@ on:
     paths:
       - 'android/**'
       - 'capacitor.config.json'
-      - 'package.json'
-      - 'package-lock.json'
       - 'nativo/**'
       - '.github/workflows/apk.yml'
 
