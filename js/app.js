@@ -17,14 +17,14 @@ import * as servidor from './servidor.js';
 import { abrirHoja, confirmar } from './hoja.js';
 import { icono, ponerIconos } from './iconos.js';
 import { esApk, AppNativa } from './nativo.js';
-import { crearEcualizador, BANDAS, PERFILES, MAXIMO_DB, OPCIONES_TOPE_DB } from './ecualizador.js';
+import { crearEcualizador, BANDAS, PERFILES, MAXIMO_DB, OPCIONES_TOPE_DB, MARGEN_TOPE_DB } from './ecualizador.js';
 import {
   puedeEntrar, puedeEntrarConGoogle, entrar, salir, alCambiarSesion,
   entrarConCorreo, crearCuenta, recuperarContrasena, cambiarContrasena, errorAlRegresar,
 } from './cuenta.js';
 import * as nube from './nube.js';
 import { abrirRecortador } from './recortar.js';
-import { abrirMejorador } from './mejorar.js';
+import { abrirMejorador, mejorarAudio } from './mejorar.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -280,23 +280,42 @@ el.importar.addEventListener('change', async () => {
   const archivos = [...el.importar.files];
   el.importar.value = ''; // permite volver a elegir el mismo archivo
   if (!archivos.length) return;
+  const mejorar = await preguntarMejorar(archivos.length);
+  if (mejorar === null) return; // cerró la pregunta: no se sube nada
 
   let guardadas = 0;
+  let sinMejorar = 0;
   const nuevas = [];
   for (const [i, archivo] of archivos.entries()) {
-    mostrarAviso(`Importando ${i + 1} de ${archivos.length}: ${archivo.name}`);
+    mostrarAviso(`${mejorar ? 'Mejorando y guardando' : 'Importando'} ${i + 1} de ${archivos.length}: ${archivo.name}`);
     try {
-      const buffer = await archivo.arrayBuffer();
+      let buffer = await archivo.arrayBuffer();
       const meta = leerMetadatos(buffer, archivo.name);
       if (!meta.portada && esVideo(archivo)) meta.portada = await portadaDeVideo(archivo);
+      let tipo = tipoParaGuardar(archivo);
+      let nombreArchivo = archivo.name;
+      let duracion;
+      if (mejorar) {
+        try {
+          const mejorada = await mejorarAudio(archivo);
+          buffer = mejorada.datos;
+          tipo = mejorada.tipo;
+          duracion = mejorada.duracion;
+          nombreArchivo = archivo.name.replace(/\.[^.]+$/, '') + '.webm';
+        } catch (error) {
+          console.warn('No se pudo mejorar', archivo.name, error.message);
+          sinMejorar++; // se sube la original
+        }
+      }
       const cancion = {
         id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
         titulo: meta.titulo,
         artista: meta.artista,
         album: meta.album,
         portada: meta.portada,
-        tipo: tipoParaGuardar(archivo),
-        nombreArchivo: archivo.name,
+        tipo,
+        nombreArchivo,
+        ...(duracion ? { duracion } : {}),
         agregada: Date.now() + i, // + i para mantener el orden aunque sea el mismo milisegundo
       };
       await guardarCancion(cancion, buffer);
@@ -308,11 +327,28 @@ el.importar.addEventListener('change', async () => {
     }
   }
 
-  mostrarAviso(`${guardadas} ${guardadas === 1 ? 'canción guardada' : 'canciones guardadas'} en Mis descargas.`, 3000);
+  mostrarAviso(`${guardadas} ${guardadas === 1 ? 'canción guardada' : 'canciones guardadas'} en Mis descargas${mejorar ? ' con el sonido mejorado' : ''}.`
+    + (sinMejorar ? ` ${sinMejorar} no se pudieron mejorar (muy largas): se guardaron como estaban.` : ''), sinMejorar ? 6000 : 3000);
   pedirAlmacenamientoPersistente();
   await recargarLista();
   subirImportadas(nuevas); // en segundo plano
 });
+
+/** Antes de subir: ¿mejorar el sonido? @returns {Promise<boolean|null>} null = cerró sin elegir */
+function preguntarMejorar(cuantas) {
+  return new Promise((resolve) => {
+    abrirHoja({
+      titulo: '¿Quieres mejorar la calidad del audio?',
+      subtitulo: `Más claro, con más cuerpo y el volumen parejo (lo saturado se baja). Se sube así para todos. `
+        + `Si prefieres comparar antes, usa Crear → Mejorar el sonido.${cuantas > 1 ? ` Aplica a las ${cuantas}.` : ''}`,
+      acciones: [
+        { icono: 'ecualizador', texto: 'Sí, mejorarla', alElegir: () => resolve(true) },
+        { icono: 'nota', texto: 'No, subirla como está', alElegir: () => resolve(false) },
+      ],
+      alCerrar: () => resolve(null),
+    });
+  });
+}
 
 const EXTENSIONES_VIDEO = ['mp4', 'm4v', 'mov'];
 const extensionDe = (nombre) => nombre.split('.').pop().toLowerCase();
@@ -2578,7 +2614,7 @@ function crearEfectosNativos() {
     conectado: true,
     conectar() {},
     aplicar(nuevas) { ganancias = nuevas.map((g) => Math.max(-MAXIMO_DB, Math.min(MAXIMO_DB, g))); mandar(); },
-    ponerTope(db, referencia = 100) { umbralDb = db === null ? null : Math.min(0, db - referencia); mandar(); },
+    ponerTope(db, referencia = 100) { umbralDb = db === null ? null : Math.min(0, db - referencia - MARGEN_TOPE_DB); mandar(); },
     ponerEco(nuevos) { lados = nuevos.map((l) => Math.max(-1, Math.min(1, l))); mandar(); },
   };
 }
@@ -2801,10 +2837,10 @@ function abrirModoEco() {
 const CLAVE_VOLUMEN_SEGURO = 'muz15-volumen-seguro';
 // referencia: los dB que dan TUS audífonos con la música al máximo (100 hasta que calibres).
 let volumenSeguro = { activo: false, db: 85, referencia: 100 };
-// Una calibración razonable cae entre 75 y 105 dB. Fuera de eso casi seguro se midió
-// mal (por ejemplo, con la APK 1.6 cuyos efectos no se aplicaban) y frena de más.
+// Una calibración razonable cae entre 75 y 125 dB (hay audífonos que al máximo dan
+// 110–120 dB). Fuera de eso casi seguro se midió mal.
 const REFERENCIA_MINIMA = 75;
-const REFERENCIA_MAXIMA = 105;
+const REFERENCIA_MAXIMA = 125;
 let calibracionReiniciada = false;
 try {
   const guardado = JSON.parse(localStorage.getItem(CLAVE_VOLUMEN_SEGURO));
@@ -2833,7 +2869,7 @@ function calibrarVolumenSeguro() {
   abrirHoja({
     titulo: 'Calibrar con tus audífonos',
     subtitulo: `1) Deja el volumen seguro en ${volumenSeguro.db} dB. 2) Pon una canción fuerte con el volumen del cel al máximo. `
-      + '3) Escribe cuántos dB marca tu app de audífonos (Soundcore, etc.).',
+      + '3) Mira unos 10 segundos cuántos dB marca tu app de audífonos (Soundcore, Galaxy Wearable, Salud de iPhone…) y escribe el número más alto que se repite.',
     entrada: {
       placeholder: `Ej. 70`,
       numero: true,
@@ -2873,7 +2909,7 @@ function abrirVolumenSeguro() {
       <span>Volumen seguro</span>
       <input type="checkbox" role="switch">
     </label>
-    <p class="formulario__nota volumen__nota">Mientras la música no llegue al tope suena igual; solo lo que intente pasarse se frena ahí, aunque subas el ecualizador. Los dB son aproximados (medidos como con audífonos comunes al volumen máximo del teléfono); con bocinas o audífonos muy potentes puede sonar más fuerte.</p>
+    <p class="formulario__nota volumen__nota">Mientras la música no llegue al tope suena igual; solo lo que intente pasarse se frena ahí, aunque subas el ecualizador. Los dB dependen de tus audífonos: sin calibrar se toman unos comunes (100 dB al máximo). Si los tuyos son más potentes sonará más fuerte que el número: <strong>calíbralo</strong> abajo y queda exacto.</p>
     <div class="eq__perfiles volumen__opciones"></div>`;
 
   const interruptor = panel.querySelector('input[role="switch"]');
@@ -2911,6 +2947,17 @@ function abrirVolumenSeguro() {
   }
 
   pintar();
+  if (hayReproductorNativo) {
+    Reproductor.diagnostico?.().then((d) => {
+      if (d?.servicio && d.efectosCreados && d.efectosConControl === false) {
+        const aviso = document.createElement('p');
+        aviso.className = 'formulario__nota volumen__nota volumen__nota--alerta';
+        aviso.textContent = 'Ojo: un efecto del teléfono (Dolby Atmos, SoundAlive o similar) tiene el control del sonido. '
+          + 'Muzzy igual baja el volumen para que no pase del tope, pero para que suene mejor apaga ese efecto en los ajustes de sonido del cel.';
+        panel.append(aviso);
+      }
+    }).catch(() => {});
+  }
   const calibrado = volumenSeguro.referencia !== 100 ? ` Calibrado para tus audífonos (${volumenSeguro.referencia} dB al máximo).` : '';
   abrirHoja({
     titulo: 'Volumen seguro',

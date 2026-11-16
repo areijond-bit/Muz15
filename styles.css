@@ -1489,3 +1489,5 @@ body.con-pantalla { overflow: hidden; }
 .recortador__elegir [data-elegir="no"][aria-pressed="true"] { background: var(--color-peligro); color: #fff; }
 .recortador__unir { align-self: flex-start; display: flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; color: var(--color-texto-suave); font: inherit; font-size: var(--texto-xs); cursor: pointer; }
 .recortador__unir[hidden] { display: none; }
+
+.volumen__nota--alerta { color: var(--color-peligro); }

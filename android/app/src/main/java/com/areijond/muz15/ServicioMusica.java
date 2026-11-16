@@ -1,7 +1,9 @@
 package com.areijond.muz15;
 
 import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.media.audiofx.DynamicsProcessing;
 import android.os.Build;
 import android.util.Log;
@@ -101,8 +103,65 @@ public class ServicioMusica extends MediaSessionService {
         // (Sin esto solo se registra si una pantalla se conecta como "controlador".)
         addSession(sesion);
 
+        // Los efectos y el volumen seguro se recuerdan aquí mismo: si Android cierra el
+        // servicio y lo vuelve a abrir (o la música arranca desde la notificación sin
+        // abrir la app), el tope sigue puesto. Antes se perdía y sonaba sin límite.
+        cargarEfectosGuardados();
         aplicarEfectos();
         instancia = this;
+    }
+
+    static final String PREFERENCIAS = "muz15-efectos";
+
+    /** Guarda lo último que mandó la app (lo llama el plugin). */
+    static void guardarEfectos(Context contexto, @Nullable float[] ganancias, @Nullable float[] lados, @Nullable Float umbralDb) {
+        SharedPreferences.Editor e = contexto.getSharedPreferences(PREFERENCIAS, Context.MODE_PRIVATE).edit();
+        if (ganancias != null) e.putString("ganancias", unir(ganancias));
+        if (lados != null) e.putString("lados", unir(lados));
+        e.putBoolean("tope", umbralDb != null);
+        e.putFloat("umbral", umbralDb != null ? umbralDb : 0f);
+        e.apply();
+    }
+
+    private void cargarEfectosGuardados() {
+        SharedPreferences p = getSharedPreferences(PREFERENCIAS, MODE_PRIVATE);
+        float[] g = separar(p.getString("ganancias", null));
+        float[] l = separar(p.getString("lados", null));
+        if (g != null) ganancias = g;
+        if (l != null) { ladosFijos = l; lados = l.clone(); }
+        topeActivo = p.getBoolean("tope", false);
+        umbralTopeDb = topeActivo ? Math.min(UMBRAL_ANTI_SATURACION_DB, p.getFloat("umbral", 0f)) : 0f;
+    }
+
+    private static String unir(float[] valores) {
+        StringBuilder texto = new StringBuilder();
+        for (float v : valores) texto.append(texto.length() > 0 ? "," : "").append(v);
+        return texto.toString();
+    }
+
+    @Nullable
+    private static float[] separar(@Nullable String texto) {
+        if (texto == null) return null;
+        String[] partes = texto.split(",");
+        if (partes.length != 8) return null;
+        float[] valores = new float[8];
+        try {
+            for (int i = 0; i < 8; i++) valores[i] = Float.parseFloat(partes[i]);
+        } catch (NumberFormatException error) {
+            return null;
+        }
+        return valores;
+    }
+
+    /**
+     * Plan B del volumen seguro: si los efectos no funcionan (Android viejo, o Dolby /
+     * SoundAlive del teléfono se quedan con el control), se baja el volumen del
+     * reproductor para que lo más fuerte nunca pase del tope.
+     */
+    private void respaldoDelTope(boolean efectosFuncionan) {
+        if (reproductor == null) return;
+        float volumen = topeActivo && !efectosFuncionan ? (float) Math.pow(10, umbralTopeDb / 20.0) : 1f;
+        reproductor.setVolume(volumen);
     }
 
     @Nullable
@@ -236,7 +295,10 @@ public class ServicioMusica extends MediaSessionService {
     int sesionDeAudio() { return sesionAudio; }
 
     private void aplicarEfectos() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return; // DynamicsProcessing es de Android 9+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) { // DynamicsProcessing es de Android 9+
+            respaldoDelTope(false);
+            return;
+        }
         try {
             if (efectos == null) {
                 DynamicsProcessing.Config config = new DynamicsProcessing.Config.Builder(
@@ -253,6 +315,7 @@ public class ServicioMusica extends MediaSessionService {
                 // Si otro efecto nos quita el control y luego lo devuelve, volvemos a aplicar.
                 efectos.setControlStatusListener((efecto, tieneControl) -> {
                     if (tieneControl) aplicarEfectos();
+                    else respaldoDelTope(false); // otro efecto manda: que el tope no se pierda
                 });
             }
             ponerBandas();
@@ -260,15 +323,18 @@ public class ServicioMusica extends MediaSessionService {
             //  - con volumen seguro: frena en el tope elegido;
             //  - sin volumen seguro: frena justo antes del máximo (-1 dB), solo para que
             //    lo que suba el ecualizador no sature ("truene"). Si nada satura, no toca nada.
-            // Frena en 5 ms y suelta en 200 ms: suave, sin "bombeo" ni crujidos.
+            // Frena en 1 ms (antes de que el golpe llegue al oído), suelta en 200 ms (sin
+            // "bombeo") y es casi un muro: por cada 20 dB que algo intente pasarse, pasa 1.
             float umbral = topeActivo ? umbralTopeDb : UMBRAL_ANTI_SATURACION_DB;
-            efectos.setLimiterAllChannelsTo(new DynamicsProcessing.Limiter(true, true, 0, 5f, 200f, 10f, umbral, 0f));
+            efectos.setLimiterAllChannelsTo(new DynamicsProcessing.Limiter(true, true, 0, 1f, 200f, 20f, umbral, 0f));
             efectos.setEnabled(true);
+            respaldoDelTope(efectos.hasControl() && efectos.getEnabled());
             vecesAplicado++;
             ultimoErrorEfectos = null;
         } catch (Exception error) {
             Log.w(TAG, "No se pudieron aplicar los efectos", error);
             ultimoErrorEfectos = error.getClass().getSimpleName() + ": " + error.getMessage();
+            respaldoDelTope(false);
             // Si el efecto quedó en mal estado, lo soltamos para crearlo de nuevo la próxima vez.
             if (efectos != null) {
                 try { efectos.release(); } catch (Exception ignorar) { /* nada */ }

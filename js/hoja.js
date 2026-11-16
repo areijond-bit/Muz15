@@ -13,9 +13,11 @@ import { icono } from './iconos.js';
  * @param {{texto: string, icono?: string, peligro?: boolean, alElegir: () => void}[]} [opciones.acciones]
  * @param {{placeholder: string, valor?: string, numero?: boolean, textoBoton: string, alAceptar: (texto: string) => void}} [opciones.entrada]
  * @param {HTMLElement} [opciones.contenido]  cualquier otro contenido (ej. un formulario)
+ * @param {() => void} [opciones.alCerrar]  si se cierra sin elegir nada (Cancelar, tocar fuera, Esc)
  * @returns {() => void} función para cerrar la hoja
  */
-export function abrirHoja({ titulo, subtitulo, acciones = [], entrada, contenido }) {
+export function abrirHoja({ titulo, subtitulo, acciones = [], entrada, contenido, alCerrar }) {
+  let elegida = false;
   const fondo = document.createElement('div');
   fondo.className = 'hoja-fondo';
 
@@ -36,9 +38,13 @@ export function abrirHoja({ titulo, subtitulo, acciones = [], entrada, contenido
     hoja.append(sub);
   }
 
+  let cerrada = false;
   const cerrar = () => {
+    if (cerrada) return;
+    cerrada = true;
     fondo.remove();
     document.removeEventListener('keydown', alTeclear);
+    if (!elegida) alCerrar?.();
   };
   const alTeclear = (evento) => { if (evento.key === 'Escape') cerrar(); };
   document.addEventListener('keydown', alTeclear);
@@ -85,6 +91,7 @@ export function abrirHoja({ titulo, subtitulo, acciones = [], entrada, contenido
     if (accion.icono) boton.insertAdjacentHTML('beforeend', icono(accion.icono));
     boton.append(accion.texto);
     boton.addEventListener('click', () => {
+      if (accion.texto !== 'Cancelar' || accion.icono) elegida = true;
       cerrar();
       accion.alElegir();
     });

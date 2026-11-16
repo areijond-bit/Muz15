@@ -53,6 +53,10 @@ create table if not exists public.audios (
 create index if not exists audios_dueno on public.audios (dueno);
 create index if not exists audios_creado on public.audios (creado desc);
 create index if not exists audios_huella on public.audios (huella);
+-- Si se cambia el archivo (ej. "Mejorar sonido" para todos): sube la versión y los
+-- dispositivos bajan el nuevo; el original queda guardado por si hay que regresar.
+alter table public.audios add column if not exists version_audio int not null default 1;
+alter table public.audios add column if not exists archivo_original text;
 -- Un mismo archivo (bien subido) solo existe una vez, aunque dos teléfonos lo suban a la vez.
 create unique index if not exists audios_huella_unica on public.audios (huella) where bytes >= 20480;
 alter table public.audios enable row level security;

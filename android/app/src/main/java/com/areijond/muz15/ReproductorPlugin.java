@@ -226,6 +226,8 @@ public class ReproductorPlugin extends Plugin {
         float[] ganancias = aFlotantes(llamada.getArray("ganancias"));
         float[] lados = aFlotantes(llamada.getArray("lados"));
         Double umbral = llamada.getDouble("umbralDb");
+        // Se guarda ya, aunque el servicio aún no exista: al abrirse lo carga.
+        ServicioMusica.guardarEfectos(getContext(), ganancias, lados, umbral != null ? umbral.floatValue() : null);
         conServicio(llamada, (s) -> {
             if (ganancias != null) s.ponerEcualizador(ganancias);
             if (lados != null) s.ponerEco(lados);

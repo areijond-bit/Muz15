@@ -40,6 +40,8 @@ export const REFERENCIA_DB = 100;
 export const OPCIONES_TOPE_DB = [70, 75, 80, 85, 90, 95, 100];
 
 // Qué tan duro frena: por cada 20 dB que algo intente pasarse, solo se pasa 1 dB.
+// Por eso frena 1.5 dB antes: lo que se cuela (medido: 1.3–1.8 dB) queda justo en el tope, nunca encima.
+export const MARGEN_TOPE_DB = 1.5;
 const PROPORCION_LIMITADOR = 20;
 
 /** @param {HTMLAudioElement[]} audios  los <audio> del reproductor */
@@ -65,7 +67,7 @@ export function crearEcualizador(audios) {
     const ahora = contexto.currentTime;
     // Sin volumen seguro: umbral en 0 dB y proporción 1 = no toca nada.
     // (nunca por encima de 0 dB: más arriba no hay nada que frenar)
-    const umbral = topeDb === null ? 0 : Math.min(0, topeDb - referenciaDb);
+    const umbral = topeDb === null ? 0 : Math.min(0, topeDb - referenciaDb - MARGEN_TOPE_DB);
     const proporcion = topeDb === null ? 1 : PROPORCION_LIMITADOR;
     limitador.threshold.setValueAtTime(umbral, ahora);
     limitador.ratio.setValueAtTime(proporcion, ahora);
@@ -91,6 +93,7 @@ export function crearEcualizador(audios) {
     limitador.attack.value = 0.002;   // reacciona en 2 ms
     limitador.release.value = 0.15;   // y suelta en 150 ms
     compensacion = contexto.createGain();
+    for (const audio of audios) audio.volume = 1; // ya frena el limitador
     aplicarTope();
     filtros.reduce((anterior, siguiente) => { anterior.connect(siguiente); return siguiente; });
     filtros.at(-1).connect(limitador);
@@ -121,6 +124,9 @@ export function crearEcualizador(audios) {
       topeDb = db;
       referenciaDb = referencia;
       if (contexto) aplicarTope();
+      // Sin procesador todavía: plan B, el volumen baja lo justo para que lo más fuerte
+      // del audio (0 dB) quede en el tope.
+      else for (const audio of audios) audio.volume = db === null ? 1 : Math.min(1, 10 ** ((db - referencia) / 20));
     },
     /** El modo eco solo existe en la APK con reproductor nativo. */
     ponerEco() {},

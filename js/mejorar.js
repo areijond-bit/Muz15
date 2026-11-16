@@ -169,6 +169,36 @@ async function procesar(sonido, nivel, medida) {
   return { buffer, final, volumen: salidaMedida.volumen * final };
 }
 
+/** Duración sin abrir el audio entero (con un <audio>). */
+function duracionDe(blob) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio();
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = () => { URL.revokeObjectURL(url); resolve(audio.duration); };
+    audio.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Ese archivo no se puede abrir')); };
+    audio.src = url;
+  });
+}
+
+/**
+ * Mejora un audio sin pantalla (al subir canciones): mide, mejora en nivel Normal y lo
+ * guarda en Opus 160 kbps.
+ * @returns {Promise<{datos: ArrayBuffer, tipo: string, duracion: number, cambioDb: number}>}
+ */
+export async function mejorarAudio(blob, nivel = 'normal') {
+  const duracion = await duracionDe(blob);
+  if (!Number.isFinite(duracion) || blob.size + 2 * TASA * 2 * 4 * duracion > PRESUPUESTO_BYTES) {
+    throw new Error('es muy largo para mejorarlo en este aparato');
+  }
+  if (!await sePuedeComprimir(2, TASA)) throw new Error('este aparato no puede guardar el audio mejorado');
+  const sonido = await new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: TASA }).decodeAudioData(await blob.arrayBuffer());
+  const medida = medir(sonido);
+  const { buffer, volumen } = await procesar(sonido, nivel, medida);
+  const datos = await codificar(buffer, 0, buffer.duration, { kbps: KBPS });
+  return { datos, tipo: 'audio/webm', duracion: buffer.duration, cambioDb: Math.round(enDb(volumen) - enDb(medida.volumen)) };
+}
+
 /**
  * @param {object} opciones
  * @param {Blob} opciones.blob

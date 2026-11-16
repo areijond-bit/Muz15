@@ -260,6 +260,7 @@ async function subirCancion(cancion) {
   const sigue = await parchearCancion(cancion.id, {
     ...datosDueno,
     idNube: fila.id, dueno: fila.dueno, enNube: true, portadaNube: fila.portada, portadaBytes: cancion.portada?.datos?.byteLength ?? 0,
+    versionAudio: fila.version_audio ?? 1,
   });
   // La borraste mientras se subía: tampoco queda en tu cuenta.
   if (!sigue) await db().from('guardados').delete().eq('usuario', yo).eq('audio', fila.id);
@@ -286,6 +287,7 @@ async function bajarCancion(guardado, idLocalDe) {
     portadaNube: audio.portada,
     portadaBytes: portada?.datos.byteLength ?? 0,
     tipo: audio.tipo,
+    versionAudio: audio.version_audio ?? 1,
     nombreArchivo: `${audio.titulo}.${EXTENSIONES[audio.tipo] ?? 'mp3'}`,
     agregada: Date.parse(guardado.agregado) || Date.now(),
     orden: guardado.orden ?? undefined,
@@ -479,6 +481,17 @@ async function igualarCancion(c, g, { ultimaVuelta, idLocalDe, idNubeDe }) {
       c = { ...c, ...campos };
       cambioAqui = true;
     }
+  }
+
+  // El audio mismo cambió en la nube (por ejemplo, se le mejoró el sonido): se baja la
+  // versión nueva una vez. (En la APK, enArchivo: false hace que se vuelva a pasar a archivo.)
+  const versionNube = a.version_audio ?? 1;
+  if (versionNube > (c.versionAudio ?? 1)) {
+    const bytes = await bajarBytes(a.archivo);
+    const nueva = { ...c, versionAudio: versionNube, tipo: a.tipo, enArchivo: false, nombreArchivo: `${c.titulo}.${EXTENSIONES[a.tipo] ?? 'mp3'}` };
+    await guardarCancion(nueva, bytes, { desdeNube: true });
+    c = nueva;
+    cambioAqui = true;
   }
 
   // Tu orden y tus vínculos (cosas tuyas, no del dueño): gana lo último que hiciste.
