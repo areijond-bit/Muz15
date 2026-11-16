@@ -28,8 +28,8 @@ import androidx.media3.session.MediaSessionService;
  *   - Ecualizador de 8 bandas (100 Hz … 12.8 kHz).
  *   - Modo eco: cada banda se puede llevar a la izquierda o a la derecha
  *     (se ecualiza cada oído por separado).
- *   - Limitador del "volumen seguro": lo que no llega al tope suena igual; lo
- *     que intenta pasarse se frena ahí.
+ *   - Volumen seguro: baja el volumen parejo hasta el tope (sin deformar) y un
+ *     limitador frena solo lo que el ecualizador suba por encima.
  */
 public class ServicioMusica extends MediaSessionService {
 
@@ -326,6 +326,9 @@ public class ServicioMusica extends MediaSessionService {
             // Frena en 1 ms (antes de que el golpe llegue al oído), suelta en 200 ms (sin
             // "bombeo") y es casi un muro: por cada 20 dB que algo intente pasarse, pasa 1.
             float umbral = topeActivo ? umbralTopeDb : UMBRAL_ANTI_SATURACION_DB;
+            // Volumen seguro: primero se baja TODO parejo (como la perilla, sin deformar) para que
+            // lo más fuerte llegue justo al tope; el limitador solo frena lo que suba el ecualizador.
+            efectos.setInputGainAllChannelsTo(topeActivo ? umbralTopeDb : 0f);
             efectos.setLimiterAllChannelsTo(new DynamicsProcessing.Limiter(true, true, 0, 1f, 200f, 20f, umbral, 0f));
             efectos.setEnabled(true);
             respaldoDelTope(efectos.hasControl() && efectos.getEnabled());

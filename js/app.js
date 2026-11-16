@@ -2957,7 +2957,7 @@ function abrirVolumenSeguro() {
       <span>Volumen seguro</span>
       <input type="checkbox" role="switch">
     </label>
-    <p class="formulario__nota volumen__nota">Mientras la música no llegue al tope suena igual; solo lo que intente pasarse se frena ahí, aunque subas el ecualizador. Los dB dependen de tus audífonos: sin calibrar se toman unos comunes (100 dB al máximo). Si los tuyos son más potentes sonará más fuerte que el número: <strong>calíbralo</strong> abajo y queda exacto.</p>
+    <p class="formulario__nota volumen__nota">Baja el volumen parejo, como girar la perilla: la canción suena igual (sin deformarse), solo que lo más fuerte nunca pasa del tope, aunque subas el ecualizador. Los dB dependen de tus audífonos: sin calibrar se toman unos comunes (100 dB al máximo). Si los tuyos son más potentes sonará más fuerte que el número: <strong>calíbralo</strong> abajo y queda exacto.</p>
     <div class="eq__perfiles volumen__opciones"></div>`;
 
   const interruptor = panel.querySelector('input[role="switch"]');

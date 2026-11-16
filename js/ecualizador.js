@@ -26,11 +26,12 @@ export const PERFILES = {
   carro: { nombre: 'Para el carro', ganancias: [4, 3, 0, -1, 1, 3, 3, 2] },
 };
 
-/* Volumen seguro: después de los filtros hay un LIMITADOR.
- *
- * Mientras el audio esté por debajo del tope, pasa exactamente igual (no se
- * baja nada). Solo cuando una parte intenta sonar más fuerte que el tope, se
- * frena ahí. Como va al final, también frena lo que suba el ecualizador.
+/* Volumen seguro: baja el volumen PAREJO (como girar la perilla), lo justo para
+ * que lo más fuerte que puede tener un audio llegue al tope. Así no se deforma
+ * nada: la canción suena igual, solo más bajito. Después de los filtros hay un
+ * LIMITADOR en el tope, que solo trabaja si el ecualizador sube algo por encima.
+ * (Antes el limitador hacía todo el trabajo y aplastaba ~20 dB de la música:
+ * sonaba plano y deformado.)
  *
  * El teléfono no puede medir los dB que llegan a tu oído (dependen de los
  * audífonos o bocinas). Tomamos como referencia 100 dB = volumen máximo del
@@ -50,6 +51,7 @@ export function crearEcualizador(audios) {
   let filtros = [];
   let limitador = null;   // DynamicsCompressor usado como limitador
   let compensacion = null; // anula la "subida automática" que el navegador le mete al limitador
+  let bajarParejo = null;  // el volumen seguro: baja todo por igual antes de los filtros
   let ganancias = BANDAS.map(() => 0);
   let topeDb = null;  // null = sin volumen seguro
   let referenciaDb = REFERENCIA_DB; // se ajusta al calibrar con tus audífonos
@@ -72,6 +74,8 @@ export function crearEcualizador(audios) {
     limitador.threshold.setValueAtTime(umbral, ahora);
     limitador.ratio.setValueAtTime(proporcion, ahora);
     compensacion.gain.setValueAtTime(gananciaQueAnula(umbral, proporcion), ahora);
+    // Lo más fuerte (0 dB) queda justo en el umbral: el limitador casi nunca tiene que actuar.
+    bajarParejo.gain.setTargetAtTime(10 ** (umbral / 20), ahora, 0.05);
   }
 
   // Arma la cadena de filtros. Debe llamarse desde un toque del usuario
@@ -93,13 +97,15 @@ export function crearEcualizador(audios) {
     limitador.attack.value = 0.002;   // reacciona en 2 ms
     limitador.release.value = 0.15;   // y suelta en 150 ms
     compensacion = contexto.createGain();
-    for (const audio of audios) audio.volume = 1; // ya frena el limitador
+    bajarParejo = contexto.createGain();
+    for (const audio of audios) audio.volume = 1; // ya baja el procesador
     aplicarTope();
+    bajarParejo.connect(filtros[0]);
     filtros.reduce((anterior, siguiente) => { anterior.connect(siguiente); return siguiente; });
     filtros.at(-1).connect(limitador);
     limitador.connect(compensacion);
     compensacion.connect(contexto.destination);
-    for (const audio of audios) contexto.createMediaElementSource(audio).connect(filtros[0]);
+    for (const audio of audios) contexto.createMediaElementSource(audio).connect(bajarParejo);
 
     // El navegador pausa el procesador si se queda sin uso; lo reactivamos al reproducir.
     for (const audio of audios) audio.addEventListener('play', () => contexto.resume());
