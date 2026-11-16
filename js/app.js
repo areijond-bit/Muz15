@@ -3997,6 +3997,9 @@ async function pintarInicio() {
       })))));
     }
     el.inicioContenido.append(seccionExplorar(canciones.filter((c) => c.dueno !== perfil?.id)));
+    const albumes = await seccionAlbumes();
+    if (este !== pintandoInicio) return;
+    if (albumes) el.inicioContenido.append(albumes);
     if (!nube.conectado()) {
       const invitacion = document.createElement('div');
       invitacion.className = 'perfil-hoja';
@@ -4011,6 +4014,42 @@ async function pintarInicio() {
     }
     marcarSonando(reproductor.estado().cancion);
   } catch { /* sin internet: solo tus canciones */ }
+}
+
+/* ---------- Explorar álbumes: los álbumes completos que suben todos ---------- */
+
+async function seccionAlbumes() {
+  let datos;
+  try {
+    datos = await nube.explorarAlbumes();
+  } catch {
+    return null;
+  }
+  if (!datos.albumes.length) return null;
+  const tarjetas = datos.albumes.map((album) => {
+    const portadas = album.canciones.map((id) => datos.audios.get(id)?.portada).filter(Boolean);
+    const total = album.canciones.filter((id) => datos.audios.has(id)).length;
+    const tarjeta = document.createElement('button');
+    tarjeta.className = 'tarjeta';
+    const titulo = document.createElement('span');
+    titulo.className = 'tarjeta__titulo';
+    titulo.textContent = album.nombre;
+    const detalle = document.createElement('span');
+    detalle.className = 'tarjeta__artista';
+    detalle.textContent = `@${album.perfil.usuario} · ${total} ${total === 1 ? 'canción' : 'canciones'}`;
+    tarjeta.append(crearMosaico(portadas.length ? portadas : ['icons/portada.png'], 'tarjeta__portada'), titulo, detalle);
+    tarjeta.addEventListener('click', () => abrirAlbum(album, datos.audios));
+    return tarjeta;
+  });
+  return seccionInicio('Explorar álbumes', carrusel(tarjetas));
+}
+
+/** Abre un álbum (de quien sea) con todas sus canciones. */
+function abrirAlbum(album, audios) {
+  const dueno = album.perfil;
+  perfilVisto = dueno.id !== nube.perfil()?.id ? dueno : null;
+  albumVisto = { album, audios, dueno };
+  mostrarVista('perfil');
 }
 
 /* ---------- Explorar: lo que el algoritmo elige para ti ---------- */
@@ -4210,9 +4249,12 @@ async function recortarCancion(cancion) {
 
 /** Cada parte se vuelve una canción nueva (con el artista, álbum y portada del original). */
 async function guardarPartes(partes, base) {
+  const ids = [];
   for (const [i, parte] of partes.entries()) {
+    const id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+    ids.push(id);
     await guardarCancion({
-      id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+      id,
       titulo: parte.titulo,
       artista: base.artista ?? '',
       album: base.album ?? '',
@@ -4228,6 +4270,55 @@ async function guardarPartes(partes, base) {
   mostrarAviso(nube.conectado()
     ? `Listo: ${n} ${n === 1 ? 'audio nuevo' : 'audios nuevos'} en Mis descargas. Se suben a tu cuenta solos.`
     : `Listo: ${n} ${n === 1 ? 'audio nuevo' : 'audios nuevos'} en Mis descargas.`, 5000);
+  if (n > 1) preguntarAlbum(ids, base);
+}
+
+/** Varias partes de un mismo audio: ¿se juntan en un álbum? */
+function preguntarAlbum(ids, base) {
+  abrirHoja({
+    titulo: '¿Quieres convertirlo en álbum?',
+    subtitulo: `Las ${ids.length} partes quedan juntas en un álbum, en orden. Tus amigos lo ven en Explorar álbumes y en tu perfil.`,
+    acciones: [
+      {
+        icono: 'album',
+        texto: 'Sí, hacer un álbum',
+        alElegir: () => setTimeout(() => abrirHoja({
+          titulo: 'Nombre del álbum',
+          entrada: {
+            placeholder: 'Nombre del álbum',
+            valor: base.album || base.titulo || '',
+            textoBoton: 'Crear álbum',
+            alAceptar: (nombre) => crearAlbumDePartes(ids, nombre.trim()),
+          },
+        })),
+      },
+      { icono: 'nota', texto: 'No, dejarlas sueltas', alElegir: () => {} },
+    ],
+  });
+}
+
+async function crearAlbumDePartes(ids, nombre) {
+  if (!nombre) return;
+  try {
+    // Cada canción lleva el nombre del álbum (así sale también en sus datos).
+    for (const id of ids) {
+      const cancion = cancionesLocales.find((c) => c.id === id);
+      if (cancion) await actualizarCancion({ ...cancion, album: nombre });
+    }
+    await guardarLista({
+      id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+      tipo: 'album',
+      nombre: nombre.slice(0, 100),
+      canciones: ids,
+      vinculos: {},
+      publico: true,
+      creada: Date.now(),
+    });
+    await recargarLista();
+    mostrarAviso(`Álbum "${nombre}" creado con ${ids.length} canciones.`, 4000);
+  } catch (error) {
+    mostrarAviso(`No se pudo crear el álbum: ${error.message}`, 4000);
+  }
 }
 
 /* ---------- Crear ---------- */

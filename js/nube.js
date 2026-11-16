@@ -387,7 +387,8 @@ async function unaVuelta() {
   }
 
   // 2. Listas (antes de bajar, para que se vean ya; se repasan al terminar).
-  cambioAqui = (await igualarListas(remotas, { idLocalDe, idNubeDe, porNube })) || cambioAqui;
+  const pendientes = new Set(porSubir.map((c) => c.id));
+  cambioAqui = (await igualarListas(remotas, { idLocalDe, idNubeDe, porNube, pendientes })) || cambioAqui;
   if (cambioAqui) ganchos.alCambiarBiblioteca?.();
 
   // 3. Bajar las que tienes en tu cuenta y aquí no.
@@ -494,7 +495,7 @@ async function igualarCancion(c, g, { ultimaVuelta, idLocalDe, idNubeDe }) {
 }
 
 /** Iguala tus álbumes y playlists. @returns true si cambió algo aquí */
-async function igualarListas(remotas, { idLocalDe, idNubeDe, porNube }) {
+async function igualarListas(remotas, { idLocalDe, idNubeDe, porNube, pendientes = new Set() }) {
   let cambio = false;
   const locales = await listarListas();
   const porId = new Map(remotas.map((r) => [r.id, r]));
@@ -525,6 +526,10 @@ async function igualarListas(remotas, { idLocalDe, idNubeDe, porNube }) {
   for (const l of locales) {
     if (l.nombre?.startsWith('Muz15 · ')) continue; // respaldos internos
     const r = l.idNube ? porId.get(l.idNube) : null;
+    if (l.canciones.some((id) => pendientes.has(id))) { // espera a que sus canciones se suban
+      if (r) porId.delete(r.id);
+      continue;
+    }
     if (!l.idNube || (!r && !l.enNube)) {
       const { data, error } = await db().from('listas').insert({ ...(l.idNube ? { id: l.idNube } : {}), dueno: yo, ...comoRemota(l, null) }).select().single();
       if (error) { console.warn('No se pudo subir la lista', l.nombre, error.message); continue; }
@@ -837,6 +842,23 @@ export async function albumesDe(dueno) {
     .eq('dueno', dueno).eq('tipo', 'album').order('cambiada', { ascending: false });
   if (error) throw traducir(error);
   return data;
+}
+
+/**
+ * Álbumes públicos de todos (lo más nuevo primero), con sus audios.
+ * @returns {Promise<{albumes: object[], audios: Map<string, object>}>}
+ */
+export async function explorarAlbumes(limite = 20) {
+  const { data, error } = await db().from('listas')
+    .select('*, perfil:perfiles!listas_dueno_fkey(id, usuario, nombre, foto)')
+    .eq('tipo', 'album').eq('publica', true)
+    .order('cambiada', { ascending: false }).limit(limite * 2);
+  if (error) throw traducir(error);
+  const conVarias = data.filter((a) => a.canciones.length >= 2 && a.perfil);
+  const audios = new Map((await audiosPorIds([...new Set(conVarias.flatMap((a) => a.canciones))]))
+    .filter((a) => a.bytes >= MINIMO_BYTES).map((a) => [a.id, a]));
+  const albumes = conVarias.filter((a) => a.canciones.some((id) => audios.has(id))).slice(0, limite);
+  return { albumes, audios };
 }
 
 /** Audios por id (para las portadas y canciones de un álbum). */
