@@ -24,11 +24,13 @@ import {
 } from './cuenta.js';
 import * as nube from './nube.js';
 import { abrirRecortador } from './recortar.js';
+import { abrirMejorador } from './mejorar.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {
   importar: $('importar'),
   recortarArchivo: $('recortar-archivo'),
+  mejorarArchivo: $('mejorar-archivo'),
   aviso: $('aviso'),
   lista: $('lista'),
   vacio: $('vacio'),
@@ -544,6 +546,7 @@ function menuCancion(cancion) {
     acciones: [
       { texto: '+ Agregar a playlist o álbum', alElegir: () => elegirLista(cancion) },
       { icono: 'regla', texto: 'Recortar o dividir', alElegir: () => recortarCancion(cancion) },
+      { icono: 'ecualizador', texto: 'Mejorar sonido (se guarda como copia)', alElegir: () => mejorarCancion(cancion) },
       esDeOtro
         ? { icono: 'candado', texto: `Solo @${cancion.duenoUsuario ?? 'su dueño'} puede editarla`, alElegir: () => {} }
         : { icono: 'editar', texto: esMia ? 'Editar título, artista y portada (para todos)' : 'Editar título, artista y portada', alElegir: () => editarCancion(cancion) },
@@ -2167,7 +2170,11 @@ const DESCARGA_APK = `https://github.com/${REPO}/releases/latest/download/Muz15.
 let versionApk = null; // { numero, nombre } de la APK instalada
 
 /** @returns {Promise<boolean>} true si hay una APK más nueva (y ya se mostró el aviso) */
-async function revisarActualizacion() {
+// Al abrir la app, el aviso de APK nueva sale una sola vez por versión (antes salía siempre).
+const CLAVE_APK_AVISADA = 'muz15-apk-avisada';
+
+/** @param {{manual?: boolean}} [como]  manual = desde ⚙ → Buscar actualizaciones (siempre avisa) */
+async function revisarActualizacion({ manual = false } = {}) {
   if (!esApk || !AppNativa) return false;
   try {
     const info = await AppNativa.getInfo();
@@ -2175,15 +2182,17 @@ async function revisarActualizacion() {
     const ultima = await (await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { cache: 'no-store' })).json();
     const numeroUltima = Number(String(ultima.tag_name ?? '').replace(/\D/g, ''));
     if (numeroUltima > versionApk.numero) {
+      if (!manual && Number(localStorage.getItem(CLAVE_APK_AVISADA)) >= numeroUltima) return true;
+      try { localStorage.setItem(CLAVE_APK_AVISADA, String(numeroUltima)); } catch { /* nada */ }
       abrirHoja({
         titulo: 'Hay una versión nueva de Muzzy',
-        subtitulo: 'Se instala encima de la que tienes: no pierdes tus canciones ni tus listas.',
+        subtitulo: 'Se instala encima de la que tienes: no pierdes tus canciones ni tus listas. Si ahora no, la encuentras en ⚙ → Buscar actualizaciones.',
         acciones: [{
           icono: 'descargar',
           texto: 'Descargar e instalar',
           // Se abre en el navegador, que baja la APK; luego tócala para instalar.
           alElegir: () => { location.href = DESCARGA_APK; },
-        }],
+        }, { icono: 'cerrar', texto: 'Ahora no', alElegir: () => {} }],
       });
       return true;
     }
@@ -2305,7 +2314,7 @@ async function buscarActualizaciones() {
     return aplicarActualizacion({ aFuerza: estado !== 'activated' });
   }
 
-  const hayApkNueva = await revisarActualizacion(); // si la hay, ya abrió su aviso
+  const hayApkNueva = await revisarActualizacion({ manual: true }); // si la hay, ya abrió su aviso
   if (!hayApkNueva) {
     const partes = [`app ${await versionWeb() ?? ''}`.trim()];
     if (versionApk) partes.push(`APK ${versionApk.nombre}`);
@@ -4230,6 +4239,41 @@ el.recortarArchivo.addEventListener('change', async () => {
   });
 });
 
+/* ---------- Mejorar sonido ---------- */
+
+el.mejorarArchivo.addEventListener('change', async () => {
+  const archivo = el.mejorarArchivo.files[0];
+  el.mejorarArchivo.value = '';
+  if (!archivo) return;
+  mostrarAviso(`Abriendo ${archivo.name}…`);
+  let meta = { titulo: archivo.name.replace(/\.[^.]+$/, ''), artista: '', album: '', portada: null };
+  try {
+    const cabeza = archivo.size > 64 * 1024 * 1024 ? archivo.slice(0, 8 * 1024 * 1024) : archivo;
+    meta = leerMetadatos(await cabeza.arrayBuffer(), archivo.name);
+    if (!meta.portada && esVideo(archivo)) meta.portada = await portadaDeVideo(archivo);
+  } catch { /* sin etiquetas: el nombre del archivo */ }
+  el.aviso.hidden = true;
+  abrirMejorador({ blob: archivo, titulo: meta.titulo, avisar: mostrarAviso, alGuardar: (partes) => guardarPartes(partes, meta) });
+});
+
+/** Mejora una canción de Mis descargas: la mejorada queda como copia (la original no se toca). */
+async function mejorarCancion(cancion) {
+  mostrarAviso(`Abriendo "${cancion.titulo}"…`);
+  let audio;
+  try {
+    audio = await audioParaSubir(cancion);
+  } catch (error) {
+    return mostrarAviso(`No se pudo abrir: ${error.message}`, 4000);
+  }
+  el.aviso.hidden = true;
+  abrirMejorador({
+    blob: audio.type ? audio : new Blob([audio], { type: cancion.tipo }),
+    titulo: `${cancion.titulo} (mejorada)`,
+    avisar: mostrarAviso,
+    alGuardar: (partes) => guardarPartes(partes, cancion),
+  });
+}
+
 async function recortarCancion(cancion) {
   mostrarAviso(`Abriendo "${cancion.titulo}"…`);
   let audio;
@@ -4330,6 +4374,7 @@ function abrirCrear() {
     acciones: [
       { icono: 'subir', texto: 'Subir audios (MP3, M4A o MP4)', alElegir: () => { if (!pedirCuenta('subir audios')) el.importar.click(); } },
       { icono: 'regla', texto: 'Recortar o dividir un audio', alElegir: () => { if (!pedirCuenta('subir audios')) el.recortarArchivo.click(); } },
+      { icono: 'ecualizador', texto: 'Mejorar el sonido de un audio', alElegir: () => { if (!pedirCuenta('subir audios')) el.mejorarArchivo.click(); } },
       { icono: 'playlist', texto: 'Nueva playlist', alElegir: () => crearLista(null, 'playlist') },
       { icono: 'album', texto: 'Nuevo álbum', alElegir: () => crearLista(null, 'album') },
     ],

@@ -1455,6 +1455,14 @@ body.con-pantalla { overflow: hidden; }
 .recortador__opcion--subir { background: var(--color-acento); color: var(--color-texto-sobre-acento); }
 .recortador__parte input[hidden] { display: none; }
 .recortador__parte--borrar .recortador__dato { text-decoration: line-through; }
+.mejorador__editor { display: flex; flex-direction: column; gap: var(--espacio-s); }
+.mejorador__editor[hidden] { display: none; }
+.mejorador__ayuda { margin: 0 0 var(--espacio-s); color: var(--color-texto-suave); font-size: var(--texto-s); }
+.mejorador__reproductor { display: flex; align-items: center; gap: var(--espacio-m); margin-bottom: var(--espacio-s); }
+.mejorador__barra { flex: 1; min-width: 0; accent-color: var(--color-acento); }
+.mejorador__tiempo { flex: none; color: var(--color-texto-suave); font-size: var(--texto-xs); font-variant-numeric: tabular-nums; }
+.mejorador__etiqueta { margin: var(--espacio-s) 0 0; font-weight: var(--peso-fuerte); }
+.recortador__elegir [data-version][aria-pressed="true"], .recortador__elegir [data-nivel][aria-pressed="true"] { background: var(--color-acento); color: var(--color-texto-sobre-acento); }
 .recortador__elegir {
   display: flex;
   border-radius: var(--radio-redondo);
