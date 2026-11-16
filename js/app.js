@@ -2390,6 +2390,7 @@ el.ajustes.addEventListener('click', () => {
       { icono: 'repetidas', texto: 'Quitar canciones repetidas', alElegir: quitarRepetidas },
       { icono: 'pc', texto: 'Música de mi computadora (Navidrome)', alElegir: () => mostrarVista('servidor') },
       { icono: 'actualizar', texto: 'Buscar actualizaciones', alElegir: buscarActualizaciones },
+      ...(usuarioNube ? [accionCerrarSesion()] : []),
     ],
   });
 });
@@ -3916,18 +3917,27 @@ function menuMiCuenta() {
       { icono: 'telefono', texto: `Nombre de este dispositivo  ·  ${nube.dispositivo().nombre}`, alElegir: renombrarEsteDispositivo },
       { icono: 'actualizar', texto: 'Sincronizar ahora', alElegir: sincronizarAhora },
       { icono: 'ajustes', texto: 'Configuración', alElegir: () => el.ajustes.click() },
-      {
-        icono: 'salir',
-        texto: 'Cerrar sesión',
-        alElegir: () => confirmar({
-          titulo: '¿Cerrar sesión en este dispositivo?',
-          subtitulo: 'Tus canciones descargadas se quedan aquí. Tu cuenta y tus otros dispositivos siguen igual.',
-          textoBoton: 'Cerrar sesión',
-          alConfirmar: async () => { await salir(); mostrarAviso('Cerraste sesión.', 3000); },
-        }),
-      },
+      accionCerrarSesion(),
     ],
   });
+}
+
+/** "Cerrar sesión" (en tu cuenta y en Configuración). */
+function accionCerrarSesion() {
+  return {
+    icono: 'salir',
+    texto: `Cerrar sesión${nube.perfil()?.usuario ? `  ·  @${nube.perfil().usuario}` : ''}`,
+    alElegir: () => confirmar({
+      titulo: '¿Cerrar sesión en este dispositivo?',
+      subtitulo: 'Tus canciones descargadas se quedan aquí. Tu cuenta y tus otros dispositivos siguen igual. Luego puedes entrar con otra cuenta.',
+      textoBoton: 'Cerrar sesión',
+      alConfirmar: async () => {
+        await salir();
+        mostrarAviso('Cerraste sesión. Ya puedes entrar con otra cuenta.', 3500);
+        if (vistaActual === 'perfil') pintarVistaPerfil();
+      },
+    }),
+  };
 }
 
 /** Sin cuenta (o sin perfil): invitación a entrar. */

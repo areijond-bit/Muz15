@@ -41,7 +41,7 @@ public class CuentaPlugin extends Plugin {
         GetGoogleIdOption rapida = new GetGoogleIdOption.Builder()
             .setServerClientId(clienteWeb)
             .setFilterByAuthorizedAccounts(false)
-            .setAutoSelectEnabled(true)
+            .setAutoSelectEnabled(false) // que siempre pregunte con qué cuenta (para poder cambiar)
             .build();
         pedir(call, new GetCredentialRequest.Builder().addCredentialOption(rapida).build(), clienteWeb, true);
     }

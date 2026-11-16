@@ -109,7 +109,11 @@ export async function entrar() {
     return data.user;
   }
   const regreso = location.origin + location.pathname;
-  const { error } = await db.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: regreso } });
+  const { error } = await db.auth.signInWithOAuth({
+    provider: 'google',
+    // select_account: Google siempre pregunta con qué cuenta (así puedes cambiar de cuenta).
+    options: { redirectTo: regreso, queryParams: { prompt: 'select_account' } },
+  });
   if (error) throw error;
   return null; // la página se va a Google
 }
