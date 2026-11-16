@@ -405,3 +405,9 @@ alter table public.listas replica identity full;
 alter table public.siguiendo replica identity full;
 alter table public.reacciones replica identity full;
 alter table public.comentarios replica identity full;
+
+-- Cada quien puede borrar (y ver, que Supabase lo pide para borrar) los archivos que subió.
+drop policy if exists "muzzy: borrar lo tuyo" on storage.objects;
+create policy "muzzy: borrar lo tuyo" on storage.objects for delete to authenticated using (bucket_id = 'muzzy' and owner_id = (select auth.uid())::text);
+drop policy if exists "muzzy: ver lo tuyo" on storage.objects;
+create policy "muzzy: ver lo tuyo" on storage.objects for select to authenticated using (bucket_id = 'muzzy' and owner_id = (select auth.uid())::text);

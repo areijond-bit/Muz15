@@ -1952,6 +1952,7 @@ async function descargarDelServidor(cancion, { silencioso = false } = {}) {
 let segundoActual = 0;
 
 function pintarReproductor({ cancion, sonando, aleatorio, urlPortada }) {
+  seguirEscucha(cancion, sonando);
   if (cancion) guardarUltima(!sonando); // cambió de canción o se pausó: guardar ya
   nube.anunciar({ cancion, sonando, posicion: segundoActual }).catch(() => {});
   for (const boton of [el.aleatorio, el.aleatorioLista]) {
@@ -1996,25 +1997,42 @@ el.anterior.addEventListener('click', () => reproductor.anterior());
 
 // Barra de progreso: se mueve sola y también sirve para saltar a otra parte.
 let arrastrando = false;
-let reproduccionContada = null; // id de la última canción que ya sumó su reproducción
-// Segundos que de verdad sonaron (adelantar o retomar en el segundo 40 no cuenta como escuchar).
-const escucha = { id: null, segundos: 0, ultimo: 0 };
+/* ---------- Reproducciones (para los Tops) ---------- */
+// Cuenta como escuchada cuando sonó 15 segundos de verdad (con o sin cuenta). Se mide
+// con el reloj mientras suena, no con la barra de progreso: así cuenta aunque el cel esté
+// bloqueado o la app en segundo plano (antes, en la APK, solo contaba con la app a la vista).
+const SEGUNDOS_PARA_CONTAR = 15;
+const escucha = { id: null, cancion: null, ms: 0, desde: null, contada: false, duracion: 0 };
+
+function revisarEscucha() {
+  if (!escucha.id || escucha.contada) return;
+  const ms = escucha.ms + (escucha.desde ? Date.now() - escucha.desde : 0);
+  // Audios muy cortos: basta con casi todo el audio.
+  const umbral = Math.min(SEGUNDOS_PARA_CONTAR, escucha.duracion > 0 ? escucha.duracion * 0.8 : SEGUNDOS_PARA_CONTAR);
+  if (ms >= umbral * 1000) {
+    escucha.contada = true;
+    nube.contarReproduccion(idEnNube(escucha.cancion));
+  }
+}
+
+/** Se llama cada vez que cambia la canción o se pausa/reproduce. */
+function seguirEscucha(cancion, sonando) {
+  if (escucha.desde) { escucha.ms += Date.now() - escucha.desde; escucha.desde = null; }
+  revisarEscucha(); // la anterior, por si llegó a los 15 s justo antes de cambiar
+  if ((cancion?.id ?? null) !== escucha.id) {
+    Object.assign(escucha, { id: cancion?.id ?? null, ms: 0, contada: false, duracion: cancion?.duracion ?? 0 });
+  }
+  escucha.cancion = cancion;
+  if (cancion && sonando) escucha.desde = Date.now();
+}
+setInterval(revisarEscucha, 2000);
+document.addEventListener('visibilitychange', revisarEscucha);
 
 function pintarProgreso({ actual, duracion }) {
-  const { cancion: sonandoAhora, sonando: suena } = reproductor.estado();
-  if (sonandoAhora?.id !== escucha.id) Object.assign(escucha, { id: sonandoAhora?.id ?? null, segundos: 0, ultimo: actual });
-  const avance = actual - escucha.ultimo;
-  if (suena && avance > 0 && avance < 3) escucha.segundos += avance;
-  escucha.ultimo = actual;
+  if (duracion > 0) escucha.duracion = duracion;
+  // La volviste a poner desde el inicio (o se repite): cuenta otra vez.
+  if (escucha.contada && actual < 2 && escucha.ms > 20000) Object.assign(escucha, { ms: 0, contada: false, desde: escucha.desde && Date.now() });
   segundoActual = actual;
-  const umbral = Math.min(30, (duracion || 60) / 2);
-  if (sonandoAhora && escucha.segundos >= umbral && reproduccionContada !== sonandoAhora.id) {
-    reproduccionContada = sonandoAhora.id;
-    nube.contarReproduccion(idEnNube(sonandoAhora));
-  } else if (sonandoAhora && actual < 2 && reproduccionContada === sonandoAhora.id && duracion) {
-    reproduccionContada = null; // la volviste a poner desde el inicio: cuenta otra vez
-    escucha.segundos = 0;
-  }
   guardarUltima();
   pintarProgresoPantalla(actual, duracion);
   // Cada ~30 s mientras suena (nube.js no manda más seguido).

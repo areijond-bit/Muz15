@@ -814,11 +814,22 @@ export async function top(periodo) {
 }
 
 /** Suma una reproducción (alguien la escuchó al menos 30 s). */
+const CLAVE_ESCUCHAS_PENDIENTES = 'muz15-escuchas-pendientes';
+
 export async function contarReproduccion(audio) {
   // También sin cuenta: la base de datos solo cuenta una vez cada 30 min por dispositivo.
   if (!db() || !audio) return;
-  const { error } = await db().rpc('sumar_reproduccion', { p_audio: audio, p_dispositivo: dispositivo().id });
-  if (error) console.warn('Nube (reproducción):', error.message);
+  const pendientes = leer(CLAVE_ESCUCHAS_PENDIENTES, []);
+  const todas = [...pendientes.filter((p) => p !== audio), audio].slice(-50);
+  const quedan = [];
+  for (const id of todas) {
+    const { error } = await db().rpc('sumar_reproduccion', { p_audio: id, p_dispositivo: dispositivo().id });
+    if (!error) continue;
+    console.warn('Nube (reproducción):', error.message);
+    // Sin internet: se intenta con la siguiente que escuches. (Otro error: se descarta.)
+    if (/fetch|network|Failed|offline/i.test(error.message)) quedan.push(id);
+  }
+  guardar(CLAVE_ESCUCHAS_PENDIENTES, quedan);
 }
 
 /** Un audio con su dueño (para la pantalla del reproductor). */
