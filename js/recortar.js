@@ -13,6 +13,7 @@
 import { icono } from './iconos.js';
 import { codificar, sePuedeComprimir } from './comprimir.js';
 import { leerMp4, sePuedeAbrirMp4, abrirMp4 } from './mp4.js';
+import { leerMp3, pesoSinPerdida, cortarSinPerdida, recodificar } from './cortar.js';
 
 // Cuánta memoria puede usar abrir el audio (se guarda completo para poder cortarlo).
 // deviceMemory = GB del aparato (aprox., máx. 8): un teléfono de 4 GB → 600 MB. Si se pasa,
@@ -22,13 +23,14 @@ const PRESUPUESTO_BYTES = Math.min(1200, (navigator.deviceMemory || 4) * 150) * 
 const ABIERTO_POR_SEGUNDO = 48000 * 2 * 4;
 // Los MP3, MP4 y M4A largos se abren por pedazos (así un audio de horas no necesita toda esa memoria a la vez).
 const PEDAZO_MP3_BYTES = 4 * 1024 * 1024;
-// De mejor a peor: la primera que quepa. En los largos baja la calidad para no trabarse.
-const CALIDADES = [
-  { tasa: 48000, canales: 2, kbps: 96, nombre: 'completa' },
-  { tasa: 24000, canales: 1, kbps: 48, nombre: 'buena (audio largo)' },
-  { tasa: 16000, canales: 1, kbps: 32, nombre: 'media (audio muy largo)' },
-  { tasa: 12000, canales: 1, kbps: 24, nombre: 'básica (audio muy largo)' },
-];
+// MP3 y MP4/M4A se cortan sin volver a codificar (suenan igual que el original). Para la
+// onda que se dibuja basta una versión muy ligera del audio.
+const ONDA = { tasa: 8000, canales: 1 };
+// Otros formatos (WAV, WebM…) sí se codifican: Opus estéreo a 160 kbps (suena como el original).
+const KBPS_MAXIMO = 160;
+const KBPS_MINIMO = 64;
+/** Los kbps más altos con los que la parte cabe en la nube. */
+const kbpsPara = (segundos) => Math.max(KBPS_MINIMO, Math.min(KBPS_MAXIMO, Math.floor((MAXIMO_PARTE_KB * 0.92 * 8) / segundos))); // Opus se pasa un poco
 const PARTE_MINIMA_S = 3;
 // La nube acepta archivos de hasta 50 MB: las partes muy largas se guardan un poco más ligeras.
 const MAXIMO_PARTE_KB = 45 * 1024;
@@ -153,43 +155,34 @@ export async function abrirRecortador({ blob, titulo, avisar, alGuardar }) {
   };
   $('[data-cerrar]').addEventListener('click', cerrar);
 
-  // ---- Abrir el audio (con la mejor calidad que quepa en memoria) ----
-  let sonido;
-  let calidad;
+  // ---- Abrir el audio ----
+  let sonido;          // para dibujar la onda (y, en otros formatos, lo que se codifica)
+  let indice = null;   // MP3 o MP4: dónde está cada pedazo, para cortar sin volver a codificar
   let duracion;
   try {
     duracion = await duracionDe(url);
-    // La mejor calidad que quepa en la memoria de este aparato: entero, o (MP3) por pedazos.
-    let porPedazos = false;
-    // MP4 / M4A (también videos): se lee su índice para abrir solo el audio, por pedazos.
-    const mp4 = esMp3(blob) ? null : await leerMp4(blob).catch(() => null);
-    const sePuedePorPedazos = esMp3(blob) || await sePuedeAbrirMp4(mp4);
-    const pedazoAbierto = mp4 ? 16 * 1024 * 1024 : ABIERTO_POR_SEGUNDO * duracion * Math.min(1, PEDAZO_MP3_BYTES / blob.size);
-    for (const c of CALIDADES) {
-      if (!await sePuedeComprimir(c.canales, c.tasa)) continue;
-      const entero = blob.size + ABIERTO_POR_SEGUNDO * duracion + c.tasa * 2 * 4 * duracion; // quedan los 2 canales
-      const pedazos = PEDAZO_MP3_BYTES + pedazoAbierto + c.tasa * c.canales * 4 * duracion;
-      if (entero <= PRESUPUESTO_BYTES) { calidad = c; break; }
-      if (sePuedePorPedazos && pedazos <= PRESUPUESTO_BYTES) { calidad = c; porPedazos = true; break; }
-    }
-    if (!calidad) {
-      throw new Error(sePuedePorPedazos
-        ? `Es muy largo para recortarlo en este aparato (${mmss(duracion)}).`
-        : `Es muy pesado para abrirlo en este aparato (${mmss(duracion)}, ${Math.round(blob.size / 1048576)} MB). Pásalo a MP3 o M4A y se puede recortar aunque dure horas.`);
-    }
-    if (porPedazos) {
-      const opciones = {
-        sigue: () => !cerrado,
-        alAvanzar: (f) => { $('.recortador__estado').textContent = `Preparando el audio… ${Math.round(f * 100)}%`; },
-      };
-      sonido = mp4
-        ? await abrirMp4(blob, mp4, calidad, duracion, opciones)
-        : await abrirPorPedazos(blob, calidad, duracion, opciones);
+    $('.recortador__estado').textContent = 'Leyendo el audio…';
+    indice = esMp3(blob) ? await leerMp3(blob).catch(() => null) : await leerMp4(blob).catch(() => null);
+    const opciones = {
+      sigue: () => !cerrado,
+      alAvanzar: (f) => { $('.recortador__estado').textContent = `Preparando la onda… ${Math.round(f * 100)}%`; },
+    };
+    if (indice) {
+      if (indice.tipo === 'mp3') sonido = await abrirPorPedazos(blob, ONDA, duracion, opciones);
+      else if (await sePuedeAbrirMp4(indice)) sonido = await abrirMp4(blob, indice, ONDA, duracion, opciones);
+      else { // sin onda (este aparato no decodifica AAC por pedazos), pero se puede cortar igual
+        const largo = Math.ceil(duracion * ONDA.tasa);
+        const vacio = new Float32Array(largo);
+        sonido = { sampleRate: ONDA.tasa, numberOfChannels: 1, length: largo, duration: duracion, getChannelData: () => vacio };
+      }
     } else {
-      const contexto = new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: calidad.tasa });
+      if (blob.size + ABIERTO_POR_SEGUNDO * duracion * 2 > PRESUPUESTO_BYTES || !await sePuedeComprimir(2, 48000)) {
+        throw new Error(`Es muy pesado para abrirlo en este aparato (${mmss(duracion)}, ${Math.round(blob.size / 1048576)} MB). Pásalo a MP3 o M4A y se puede recortar aunque dure horas.`);
+      }
+      const contexto = new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: 48000 });
       sonido = await contexto.decodeAudioData(await blob.arrayBuffer());
+      duracion = sonido.duration;
     }
-    duracion = sonido.duration;
   } catch (error) {
     if (!cerrado) {
       cerrar();
@@ -198,8 +191,8 @@ export async function abrirRecortador({ blob, titulo, avisar, alGuardar }) {
     return;
   }
   if (cerrado) return;
-  $('.recortador__estado').textContent = calidad.tasa < 48000 ? `Audio largo: se guarda en calidad ${calidad.nombre}.` : '';
-  $('.recortador__estado').hidden = calidad.tasa === 48000;
+  $('.recortador__estado').textContent = indice ? 'Se guarda con la calidad original (sin volver a comprimir).' : '';
+  $('.recortador__estado').hidden = !indice;
   $('.recortador__editor').hidden = false;
   $('[data-total]').textContent = mmss(duracion);
   $('[data-guardar]').disabled = false;
@@ -377,12 +370,17 @@ export async function abrirRecortador({ blob, titulo, avisar, alGuardar }) {
     const resultado = [];
     try {
       for (const [n, parte] of elegidas.entries()) {
-        const datos = await codificar(sonido, parte.inicio, parte.fin, {
-          canales: calidad.canales,
-          kbps: Math.max(16, Math.min(calidad.kbps, Math.floor((MAXIMO_PARTE_KB * 8) / (parte.fin - parte.inicio)))),
-          alAvanzar: (f) => { guardar.textContent = `Guardando ${n + 1} de ${elegidas.length} · ${Math.round(f * 100)}%`; },
-        });
-        resultado.push({ titulo: parte.titulo, datos, tipo: 'audio/webm', duracion: parte.fin - parte.inicio });
+        const alAvanzar = (f) => { guardar.textContent = `Guardando ${n + 1} de ${elegidas.length} · ${Math.round(f * 100)}%`; };
+        const segundos = parte.fin - parte.inicio;
+        let hecho;
+        if (indice && pesoSinPerdida(indice, parte.inicio, parte.fin) <= MAXIMO_PARTE_KB * 1024) {
+          hecho = await cortarSinPerdida(blob, indice, parte.inicio, parte.fin, alAvanzar); // idéntica al original
+        } else if (indice) {
+          hecho = await recodificar(blob, indice, parte.inicio, parte.fin, kbpsPara(segundos), alAvanzar); // no cabría en la nube
+        } else {
+          hecho = { datos: await codificar(sonido, parte.inicio, parte.fin, { kbps: kbpsPara(segundos), alAvanzar }), tipo: 'audio/webm' };
+        }
+        resultado.push({ titulo: parte.titulo, datos: hecho.datos, tipo: hecho.tipo, duracion: segundos });
       }
       await alGuardar(resultado);
       try { localStorage.removeItem(claveCortes(blob)); } catch { /* nada */ }

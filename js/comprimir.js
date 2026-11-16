@@ -8,7 +8,10 @@
 import { Muxer, ArrayBufferTarget } from './vendor/webm-muxer.mjs';
 
 const TASA = 48000;                 // Opus siempre trabaja a 48 kHz
-const KBPS = 96;
+const KBPS = 160; // Opus estéreo a 160 kbps suena igual que el original
+// Ya comprimidos (MP3, AAC, Opus…): se suben tal cual, salvo que pesen de más (más de 256 kbps).
+const YA_COMPRIMIDOS = /mpeg|mp3|mp4|m4a|aac|webm|ogg|opus/;
+const KBPS_PARA_RECOMPRIMIR = 256;
 // Más grande que esto: tal cual. Al abrirlo, 1 minuto ocupa ~23 MB de memoria; un MP3 de
 // 20 MB (~20 min) ya ocupa ~460 MB, y más que eso cerraba la página en algunos teléfonos.
 const MAXIMO_PARA_COMPRIMIR = 20 * 1024 * 1024;
@@ -28,8 +31,11 @@ export async function sePuedeComprimir(canales = 2, tasa = TASA) {
  * @param {ArrayBuffer} original  MP3, M4A, MP4 (su audio), WAV…
  * @returns {Promise<{datos: ArrayBuffer, tipo: string, duracion: number|null, comprimida: boolean}>}
  */
-export async function comprimir(original, tipoOriginal) {
-  const tal = { datos: original, tipo: tipoOriginal, duracion: null, comprimida: false };
+export async function comprimir(original, tipoOriginal, duracionConocida = null) {
+  const tal = { datos: original, tipo: tipoOriginal, duracion: duracionConocida, comprimida: false };
+  if (YA_COMPRIMIDOS.test(tipoOriginal ?? '')) {
+    if (!duracionConocida || (original.byteLength * 8) / duracionConocida / 1000 <= KBPS_PARA_RECOMPRIMIR) return tal;
+  }
   // Ya viene en Opus (por ejemplo, un pedazo hecho con "Recortar"): no se vuelve a comprimir.
   if (tipoOriginal === 'audio/webm') return tal;
   if (original.byteLength > MAXIMO_PARA_COMPRIMIR || !(await sePuedeComprimir())) return tal;
@@ -44,7 +50,7 @@ export async function comprimir(original, tipoOriginal) {
 
   const comprimido = await codificar(sonido, 0, sonido.duration).catch(() => null);
   // Si falló o no ganamos nada (ej. ya venía muy comprimida), mejor la original.
-  if (!comprimido || comprimido.byteLength >= original.byteLength) return { ...tal, duracion: sonido.duration };
+  if (!comprimido || comprimido.byteLength >= original.byteLength * 0.9) return { ...tal, duracion: sonido.duration };
   return { datos: comprimido, tipo: 'audio/webm', duracion: sonido.duration, comprimida: true };
 }
 

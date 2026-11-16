@@ -6,6 +6,7 @@ import { copyFileSync } from 'node:fs';
 const copias = {
   'node_modules/@supabase/supabase-js/dist/umd/supabase.js': 'js/vendor/supabase.js',
   'node_modules/webm-muxer/build/webm-muxer.mjs': 'js/vendor/webm-muxer.mjs',
+  'node_modules/mp4-muxer/build/mp4-muxer.mjs': 'js/vendor/mp4-muxer.mjs',
 };
 for (const [desde, hacia] of Object.entries(copias)) {
   copyFileSync(desde, hacia);

@@ -224,7 +224,7 @@ async function subirCancion(cancion) {
   };
   let fila = await buscarIgual();
   if (!fila) {
-    const listo = await comprimir(original, cancion.tipo);
+    const listo = await comprimir(original, cancion.tipo, cancion.duracion ?? null);
     if (listo.datos.byteLength > 50 * 1024 * 1024) {
       throw new Error(`"${cancion.titulo}" pesa ${Math.round(listo.datos.byteLength / 1048576)} MB y la nube acepta hasta 50 MB. Recórtalo en partes (Crear → Recortar).`);
     }

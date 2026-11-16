@@ -153,7 +153,8 @@ export async function leerMp4(blob) {
       const delta = v.getUint32(stts.ini + 12 + i * 8);
       for (let k = 0; k < veces && muestra < cuantos; k++) { tiempos[muestra++] = t; t += delta; }
     }
-    return { config, escala, inicios, tamanos, tiempos };
+    const segundos = tiempos.map((x) => x / escala);
+    return { tipo: 'mp4', config, escala, inicios, tamanos, tiempos, segundos };
   }
   throw new Error('no tiene audio');
 }

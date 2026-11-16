@@ -4260,7 +4260,7 @@ async function guardarPartes(partes, base) {
       album: base.album ?? '',
       portada: base.portada ?? null,
       tipo: parte.tipo,
-      nombreArchivo: `${parte.titulo}.webm`,
+      nombreArchivo: `${parte.titulo}.${{ 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a' }[parte.tipo] ?? 'webm'}`,
       duracion: parte.duracion,
       agregada: Date.now() + i,
     }, parte.datos);
