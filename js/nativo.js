@@ -11,6 +11,8 @@ import { Capacitor, registerPlugin } from './vendor/capacitor-core.js';
 export const esApk = Capacitor.isNativePlatform();
 export const SesionNativa = esApk ? registerPlugin('MediaSession') : null;
 export const AppNativa = esApk ? registerPlugin('App') : null;
+// APK 1.16+: baja la APK nueva dentro de la app y abre el instalador.
+export const ActualizarNativo = esApk && Capacitor.isPluginAvailable('Actualizar') ? registerPlugin('Actualizar') : null;
 
 const enCache = new Map();
 

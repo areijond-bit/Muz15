@@ -16,7 +16,7 @@ import {
 import * as servidor from './servidor.js';
 import { abrirHoja, confirmar } from './hoja.js';
 import { icono, ponerIconos } from './iconos.js';
-import { esApk, AppNativa } from './nativo.js';
+import { esApk, AppNativa, ActualizarNativo } from './nativo.js';
 import { crearEcualizador, BANDAS, PERFILES, MAXIMO_DB, OPCIONES_TOPE_DB, MARGEN_TOPE_DB } from './ecualizador.js';
 import {
   puedeEntrar, puedeEntrarConGoogle, entrar, salir, alCambiarSesion,
@@ -2244,8 +2244,7 @@ async function revisarActualizacion({ manual = false } = {}) {
         acciones: [{
           icono: 'descargar',
           texto: 'Descargar e instalar',
-          // Se abre en el navegador, que baja la APK; luego tócala para instalar.
-          alElegir: () => { location.href = DESCARGA_APK; },
+          alElegir: instalarApkNueva,
         }, { icono: 'cerrar', texto: 'Ahora no', alElegir: () => {} }],
       });
       return true;
@@ -2255,6 +2254,36 @@ async function revisarActualizacion({ manual = false } = {}) {
   }
   return false;
 }
+/** Baja la APK nueva (con porcentaje) y abre "Instalar" de Android. */
+let instalandoApk = false;
+async function instalarApkNueva() {
+  if (!ActualizarNativo) {
+    // APK viejita (sin el bajador): la baja el navegador del cel, en silencio.
+    mostrarAviso('Se está bajando con tu navegador. Cuando termine, toca la notificación "Muz15.apk" para instalarla.', 10000);
+    location.href = DESCARGA_APK;
+    return;
+  }
+  if (instalandoApk) return mostrarAviso('Ya se está bajando la versión nueva…', 3000);
+  instalandoApk = true;
+  mostrarAviso('Bajando la versión nueva… 0%');
+  const escucha = await ActualizarNativo.addListener('progreso', ({ fraccion }) => {
+    mostrarAviso(`Bajando la versión nueva… ${Math.round((fraccion || 0) * 100)}%`);
+  });
+  try {
+    await ActualizarNativo.instalar({ url: DESCARGA_APK });
+    mostrarAviso('Listo: toca "Instalar" en la ventana de Android.', 8000);
+  } catch (error) {
+    if (error?.code === 'PERMISO') {
+      mostrarAviso('Activa "Permitir de esta fuente" para Muzzy, regresa y vuelve a tocar Descargar e instalar.', 10000);
+    } else {
+      mostrarAviso(`${error?.message ?? 'No se pudo bajar'}. Revisa tu internet y vuelve a intentar.`, 7000);
+    }
+  } finally {
+    escucha.remove();
+    instalandoApk = false;
+  }
+}
+
 const revisarActualizacionLista = revisarActualizacion(); // también deja anotada la versión de la APK
 
 /* ---------- Botón Atrás de Android (solo APK) ---------- */
