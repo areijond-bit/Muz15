@@ -1454,5 +1454,30 @@ body.con-pantalla { overflow: hidden; }
 }
 .recortador__opcion--subir { background: var(--color-acento); color: var(--color-texto-sobre-acento); }
 .recortador__parte input[hidden] { display: none; }
+.recortador__parte--borrar .recortador__dato { text-decoration: line-through; }
+.recortador__elegir {
+  display: flex;
+  border-radius: var(--radio-redondo);
+  background: color-mix(in srgb, var(--color-texto) 10%, transparent);
+  padding: 3px;
+  gap: 3px;
+}
+.recortador__elegir button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--radio-redondo);
+  background: transparent;
+  color: var(--color-texto-suave);
+  font: inherit;
+  font-weight: var(--peso-fuerte);
+  cursor: pointer;
+}
+.recortador__elegir [data-elegir="si"][aria-pressed="true"] { background: var(--color-acento); color: var(--color-texto-sobre-acento); }
+.recortador__elegir [data-elegir="no"][aria-pressed="true"] { background: var(--color-peligro); color: #fff; }
 .recortador__unir { align-self: flex-start; display: flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; color: var(--color-texto-suave); font: inherit; font-size: var(--texto-xs); cursor: pointer; }
 .recortador__unir[hidden] { display: none; }

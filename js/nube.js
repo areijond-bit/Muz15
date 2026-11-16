@@ -225,6 +225,9 @@ async function subirCancion(cancion) {
   let fila = await buscarIgual();
   if (!fila) {
     const listo = await comprimir(original, cancion.tipo);
+    if (listo.datos.byteLength > 50 * 1024 * 1024) {
+      throw new Error(`"${cancion.titulo}" pesa ${Math.round(listo.datos.byteLength / 1048576)} MB y la nube acepta hasta 50 MB. Recórtalo en partes (Crear → Recortar).`);
+    }
     const tipo = EXTENSIONES[listo.tipo] ? listo.tipo : 'audio/mpeg';
     const archivo = await subirArchivo('audio', listo.datos, tipo, firma);
     let portada = null;

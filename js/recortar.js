@@ -3,8 +3,8 @@
 //   ┌ onda del audio ─────────────────────────────┐
 //   │▁▃▅▇▅▃▁│▂▄▆█▆▄▂│▁▃▅▇▅▃▁   ← tocas para moverte  │
 //   └────────────────┴─────── cortes ──────────────┘
-//   Parte 1  0:00 – 12:30   [Subir]  nombre…
-//   Parte 2 12:30 – 14:00   [Borrar]
+//   Parte 1  0:00 – 12:30   [✓ Guardar | Quitar]  nombre…
+//   Parte 2 12:30 – 14:00   [Guardar | ✕ Quitar]
 //
 // Pones cortes donde quieras y a cada parte le dices Subir o Borrar. Cada parte que
 // se sube queda como su propio audio (así un audio de 1 h se vuelve 5, o le quitas un
@@ -30,6 +30,10 @@ const CALIDADES = [
   { tasa: 12000, canales: 1, kbps: 24, nombre: 'básica (audio muy largo)' },
 ];
 const PARTE_MINIMA_S = 3;
+// La nube acepta archivos de hasta 50 MB: las partes muy largas se guardan un poco más ligeras.
+const MAXIMO_PARTE_KB = 45 * 1024;
+// Tus cortes se recuerdan por archivo: si se cierra o algo falla, al abrirlo otra vez siguen ahí.
+const claveCortes = (blob) => `muz15-cortes:${blob.name ?? ''}:${blob.size}`;
 
 const mmss = (s) => {
   const t = Math.max(0, Math.floor(s));
@@ -129,7 +133,7 @@ export async function abrirRecortador({ blob, titulo, avisar, alGuardar }) {
         <button class="boton-perfil" data-mover="10">+10 s</button>
       </div>
       <button class="boton boton--primario boton--ancho recortador__cortar" data-cortar>${icono('regla', 20)} Cortar aquí</button>
-      <p class="recortador__ayuda">Pon cortes donde quieras. Cada parte en <strong>Subir</strong> se vuelve su propio audio; las de <strong>Borrar</strong> se quitan.</p>
+      <p class="recortador__ayuda">Pon cortes donde quieras. En cada parte elige <strong>Guardar</strong> (se vuelve su propio audio) o <strong>Quitar</strong> (se tira).</p>
       <ol class="recortador__partes"></ol>
     </div>`;
   document.body.append(caja);
@@ -222,6 +226,16 @@ export async function abrirRecortador({ blob, titulo, avisar, alGuardar }) {
 
   // ---- Las partes ----
   let partes = [{ inicio: 0, fin: duracion, subir: true, nombre: null }];
+  try {
+    const guardadas = JSON.parse(localStorage.getItem(claveCortes(blob)));
+    if (Array.isArray(guardadas) && guardadas.length > 1 && Math.abs(guardadas.at(-1).fin - duracion) < 2) {
+      partes = guardadas;
+      avisar('Se recuperaron los cortes que habías hecho en este archivo.', 4000);
+    }
+  } catch { /* nada */ }
+  const recordarCortes = () => {
+    try { localStorage.setItem(claveCortes(blob), JSON.stringify(partes)); } catch { /* nada */ }
+  };
   const nombreDe = (parte, i) => parte.nombre ?? (partes.filter((p) => p.subir).length > 1 || partes.length > 1 ? `${titulo} (parte ${i + 1})` : titulo);
   const estilo = getComputedStyle(document.documentElement);
   const color = (nombre, respaldo) => estilo.getPropertyValue(nombre).trim() || respaldo;
@@ -272,16 +286,20 @@ export async function abrirRecortador({ blob, titulo, avisar, alGuardar }) {
         <div class="recortador__fila">
           <button class="boton-icono" data-oir aria-label="Escuchar esta parte">${icono('play', 20)}</button>
           <div class="recortador__dato"><strong></strong><span></span></div>
-          <button class="recortador__opcion" data-alternar></button>
+        </div>
+        <div class="recortador__elegir" role="group" aria-label="¿Qué hacer con esta parte?">
+          <button data-elegir="si">${icono('descargado', 18)} Guardar</button>
+          <button data-elegir="no">${icono('cerrar', 18)} Quitar</button>
         </div>
         <input class="campo__entrada" maxlength="200" placeholder="Nombre de este audio">
         <button class="recortador__unir" data-unir>${icono('cerrar', 16)} Quitar el corte de arriba</button>`;
       li.querySelector('strong').textContent = `Parte ${i + 1}`;
       li.querySelector('.recortador__dato span').textContent = `${mmss(parte.inicio)} – ${mmss(parte.fin)} · ${mmss(parte.fin - parte.inicio)}`;
-      const opcion = li.querySelector('[data-alternar]');
-      opcion.textContent = parte.subir ? 'Subir' : 'Borrar';
-      opcion.classList.toggle('recortador__opcion--subir', parte.subir);
-      opcion.addEventListener('click', () => { parte.subir = !parte.subir; pintarTodo(); });
+      for (const boton of li.querySelectorAll('[data-elegir]')) {
+        const guardar = boton.dataset.elegir === 'si';
+        boton.setAttribute('aria-pressed', String(parte.subir === guardar));
+        boton.addEventListener('click', () => { parte.subir = guardar; pintarTodo(); });
+      }
       const nombre = li.querySelector('input');
       nombre.hidden = !parte.subir;
       nombre.value = nombreDe(parte, i);
@@ -297,12 +315,13 @@ export async function abrirRecortador({ blob, titulo, avisar, alGuardar }) {
       return li;
     }));
     const quedan = partes.filter((p) => p.subir).length;
-    $('[data-guardar]').textContent = quedan > 1 ? `Guardar ${quedan} audios` : 'Guardar';
+    $('[data-guardar]').textContent = quedan === 1 ? 'Guardar 1 audio' : `Guardar ${quedan} audios`;
   }
 
   function pintarTodo() {
     dibujar();
     pintarPartes();
+    recordarCortes();
   }
 
   function cortar() {
@@ -348,7 +367,9 @@ export async function abrirRecortador({ blob, titulo, avisar, alGuardar }) {
   // ---- Guardar: cada parte en "Subir" se vuelve un audio ----
   $('[data-guardar]').addEventListener('click', async () => {
     const elegidas = partes.map((p, i) => ({ ...p, titulo: (nombreDe(p, i) || titulo).trim() })).filter((p) => p.subir);
-    if (!elegidas.length) return avisar('Todas las partes están en Borrar: no queda nada que subir.', 3000);
+    if (!elegidas.length) return avisar('Todas las partes están en Quitar: elige Guardar en las que quieres.', 4000);
+    const quitadas = partes.length - elegidas.length;
+    if (quitadas && !confirm(`Se guardan ${elegidas.length} ${elegidas.length === 1 ? 'audio' : 'audios'}:\n${elegidas.map((p) => `• ${p.titulo} (${mmss(p.fin - p.inicio)})`).join('\n')}\n\nY se ${quitadas === 1 ? 'quita 1 parte' : `quitan ${quitadas} partes`}. ¿Está bien?`)) return;
     reproductor.pause();
     const guardar = $('[data-guardar]');
     guardar.disabled = true;
@@ -358,12 +379,13 @@ export async function abrirRecortador({ blob, titulo, avisar, alGuardar }) {
       for (const [n, parte] of elegidas.entries()) {
         const datos = await codificar(sonido, parte.inicio, parte.fin, {
           canales: calidad.canales,
-          kbps: calidad.kbps,
+          kbps: Math.max(16, Math.min(calidad.kbps, Math.floor((MAXIMO_PARTE_KB * 8) / (parte.fin - parte.inicio)))),
           alAvanzar: (f) => { guardar.textContent = `Guardando ${n + 1} de ${elegidas.length} · ${Math.round(f * 100)}%`; },
         });
         resultado.push({ titulo: parte.titulo, datos, tipo: 'audio/webm', duracion: parte.fin - parte.inicio });
       }
       await alGuardar(resultado);
+      try { localStorage.removeItem(claveCortes(blob)); } catch { /* nada */ }
       cerrar();
     } catch (error) {
       avisar(`No se pudo guardar: ${error.message}`, 5000);
