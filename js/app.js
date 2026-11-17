@@ -2437,10 +2437,53 @@ el.ajustes.addEventListener('click', () => {
       { icono: 'repetidas', texto: 'Quitar canciones repetidas', alElegir: quitarRepetidas },
       { icono: 'pc', texto: 'Música de mi computadora (Navidrome)', alElegir: () => mostrarVista('servidor') },
       { icono: 'actualizar', texto: 'Buscar actualizaciones', alElegir: buscarActualizaciones },
+      { icono: 'compartir', texto: 'Compartir Muzzy (enlace para el navegador)', alElegir: compartirMuzzy },
+      ...(!esApk ? [{ icono: 'descargar', texto: 'Instalar Muzzy en este dispositivo', alElegir: instalarPagina }] : []),
       ...(usuarioNube ? [accionCerrarSesion()] : []),
     ],
   });
 });
+
+/* ---------- Muzzy en el navegador ---------- */
+// La misma app funciona en cualquier navegador (cel, PC, iPhone) en esta dirección.
+const ENLACE_MUZZY = 'https://areijond-bit.github.io/Muz15/';
+
+async function compartirMuzzy() {
+  const texto = 'Escucha y sube audios en Muzzy (se abre en el navegador, sin instalar nada)';
+  try {
+    if (navigator.share) return await navigator.share({ title: 'Muzzy', text: texto, url: ENLACE_MUZZY });
+  } catch (error) {
+    if (error.name === 'AbortError') return;
+  }
+  try {
+    await navigator.clipboard.writeText(ENLACE_MUZZY);
+    mostrarAviso(`Enlace copiado: ${ENLACE_MUZZY}`, 4000);
+  } catch {
+    abrirHoja({ titulo: 'Enlace de Muzzy', subtitulo: ENLACE_MUZZY });
+  }
+}
+
+// Chrome/Edge/Android avisan que la página se puede instalar como app; lo guardamos para el botón.
+let avisoInstalar = null;
+window.addEventListener('beforeinstallprompt', (evento) => { evento.preventDefault(); avisoInstalar = evento; });
+window.addEventListener('appinstalled', () => { avisoInstalar = null; mostrarAviso('Muzzy quedó instalada: búscala con tus apps.', 4000); });
+
+async function instalarPagina() {
+  if (matchMedia('(display-mode: standalone)').matches) return mostrarAviso('Ya estás usando Muzzy instalada.', 3000);
+  if (avisoInstalar) {
+    avisoInstalar.prompt();
+    await avisoInstalar.userChoice.catch(() => null);
+    avisoInstalar = null;
+    return;
+  }
+  const iphone = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  abrirHoja({
+    titulo: 'Instalar Muzzy',
+    subtitulo: iphone
+      ? 'En Safari: toca Compartir (el cuadrito con flecha) → "Agregar a inicio". Queda como una app más.'
+      : 'En el menú del navegador (⋮) toca "Instalar app" o "Agregar a la pantalla principal". En Android también puedes bajar la APK.',
+  });
+}
 
 /* ---------- Tema (los colores de la app) ---------- */
 // Tres colores: principal (fondo), secundario (letras e íconos) y terciario
@@ -3212,7 +3255,11 @@ function iniciarCuenta() {
     if (vistaActual === 'inicio') pintarInicio();
     if (usuario && !perfil) pedirPerfil(); // primera vez: crea tu perfil
     else if (perfil) abrirPerfilDelEnlace();
-    else if (!usuario && primeraVez) ofrecerCuentaUnaVez();
+    else if (!usuario && primeraVez) {
+      // Llegaste con el enlace de un perfil: primero ese perfil (la cuenta se ofrece después).
+      if (new URLSearchParams(location.search).has('perfil')) abrirPerfilDelEnlace();
+      else ofrecerCuentaUnaVez();
+    }
     primeraVez = false;
   }, { alRecuperar: pedirContrasenaNueva });
 }
@@ -3947,7 +3994,7 @@ async function compartirPerfil(perfil) {
 /** Si abriste Muz15 con un enlace de perfil (…?perfil=usuario), ve a ese perfil. */
 async function abrirPerfilDelEnlace() {
   const usuario = new URLSearchParams(location.search).get('perfil');
-  if (!usuario || !nube.conectado()) return;
+  if (!usuario || !puedeEntrar().si) return; // también sin cuenta: ver perfiles no la necesita
   history.replaceState(null, '', location.pathname);
   try {
     const perfil = await nube.perfilPorUsuario(usuario.toLowerCase());
